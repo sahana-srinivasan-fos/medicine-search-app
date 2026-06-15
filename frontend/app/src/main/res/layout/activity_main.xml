@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Search Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/search_edit_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Search medicines..."
+            android:inputType="text"
+            android:padding="12dp" />
+
+        <Button
+            android:id="@+id/search_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Search"
+            android:layout_marginStart="8dp" />
+
+        <Button
+            android:id="@+id/voice_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎤"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Category Filter -->
+    <Spinner
+        android:id="@+id/category_spinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:prompt="@string/select_category" />
+
+    <!-- Progress Bar -->
+    <ProgressBar
+        android:id="@+id/loading_progress_bar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="16dp"
+        android:visibility="gone" />
+
+    <!-- Preset Medicines -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Preset Medicines"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:layout_marginTop="16dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/preset_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_marginTop="8dp" />
+
+    <!-- Recent Searches -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Recent Searches"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:layout_marginTop="16dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recent_searches_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:layout_marginTop="8dp" />
+
+    <!-- Search Results -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Search Results"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:layout_marginTop="16dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/medicine_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>

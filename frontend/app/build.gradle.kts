@@ -5,16 +5,12 @@ plugins {
 
 android {
     namespace = "com.rxora.app"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.rxora.app"
         minSdk = 28
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -36,6 +32,7 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
 }
 
@@ -55,5 +52,21 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    
+
+    // Retrofit (for API calls)
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+
+    // RecyclerView (for lists)
+    implementation("androidx.recyclerview:recyclerview:1.3.0")
+
+    // Coroutines (for async operations)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+
+    // View Binding (if using Java 8+)
+    implementation("androidx.appcompat:appcompat:1.6.1")
+
+    // Material Design
+    implementation("com.google.android.material:material:1.9.0")
 }
