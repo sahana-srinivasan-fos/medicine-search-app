@@ -2,24 +2,25 @@ package com.rxora.app.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import com.rxora.app.R
 import com.rxora.app.databinding.ItemMedicineBinding
 import com.rxora.app.models.Medicine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MedicineAdapter(
-    private val medicines: MutableList<Medicine> = mutableListOf()
+    private var medicines: List<Medicine> = emptyList()
 ) : RecyclerView.Adapter<MedicineAdapter.MedicineViewHolder>() {
 
-    fun setData(newMedicines: List<Medicine>) {
-        medicines.clear()
-        medicines.addAll(newMedicines)
-        notifyDataSetChanged()
-    }
-
-    fun addData(newMedicines: List<Medicine>) {
-        medicines.addAll(newMedicines)
-        notifyDataSetChanged()
+    suspend fun setData(newMedicines: List<Medicine>) {
+        val oldMedicines = medicines
+        val diffResult = withContext(Dispatchers.Default) {
+            val diffCallback = MedicineDiffCallback(oldMedicines, newMedicines)
+            DiffUtil.calculateDiff(diffCallback)
+        }
+        medicines = newMedicines
+        diffResult.dispatchUpdatesTo(this)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MedicineViewHolder {
@@ -36,6 +37,20 @@ class MedicineAdapter(
     }
 
     override fun getItemCount(): Int = medicines.size
+
+    class MedicineDiffCallback(
+        private val oldList: List<Medicine>,
+        private val newList: List<Medicine>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = oldList.size
+        override fun getNewListSize(): Int = newList.size
+        override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            return oldList[oldItemPosition].id == newList[newItemPosition].id
+        }
+        override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+            return oldList[oldItemPosition] == newList[newItemPosition]
+        }
+    }
 
     inner class MedicineViewHolder(private val binding: ItemMedicineBinding) :
         RecyclerView.ViewHolder(binding.root) {

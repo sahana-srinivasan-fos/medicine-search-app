@@ -3,10 +3,12 @@ package com.rxora.app
 import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
@@ -14,6 +16,11 @@ import com.rxora.app.models.Category
 import com.rxora.app.models.Medicine
 import com.rxora.app.ui.MedicineAdapter
 import com.rxora.app.ui.RecentSearchAdapter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -30,18 +37,78 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val SPEECH_REQUEST_CODE = 100
+        private const val TAG = "MainActivity"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "onCreate started")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         setupRecyclerViews()
         setupButtons()
-        loadPresets()
-        loadCategories()
-        loadRecentSearches()
+        
+        loadInitialData()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "onResume called")
+    }
+
+    private fun loadInitialData() {
+        lifecycleScope.launch {
+            Log.d(TAG, "Data loading started")
+            
+            try {
+                supervisorScope {
+                    val presetsDeferred = async(Dispatchers.IO) { 
+                        try { RetrofitClient.medicineApi.getPresetMedicines() } 
+                        catch (e: Exception) { 
+                            Log.e(TAG, "Error fetching presets", e)
+                            null 
+                        }
+                    }
+                    val categoriesDeferred = async(Dispatchers.IO) { 
+                        try { RetrofitClient.medicineApi.getCategories() } 
+                        catch (e: Exception) { 
+                            Log.e(TAG, "Error fetching categories", e)
+                            null 
+                        }
+                    }
+                    val recentDeferred = async(Dispatchers.IO) { 
+                        try { RetrofitClient.medicineApi.getRecentSearches(userId) } 
+                        catch (e: Exception) { 
+                            Log.e(TAG, "Error fetching recent searches", e)
+                            null 
+                        }
+                    }
+                    
+                    val presetsResponse = presetsDeferred.await()
+                    val categoriesResponse = categoriesDeferred.await()
+                    val recentResponse = recentDeferred.await()
+                    
+                    withContext(Dispatchers.Main) {
+                        presetsResponse?.body()?.let { medicineAdapter.setData(it) }
+                        
+                        categoriesResponse?.body()?.let { categories ->
+                            val categoryNames = mutableListOf("All Categories")
+                            categoryNames.addAll(categories.map { it.name })
+                            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, categoryNames)
+                            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                            binding.categorySpinner.adapter = adapter
+                        }
+                        
+                        recentResponse?.body()?.let { recentSearchAdapter?.setData(it) }
+                    }
+                    
+                    Log.d(TAG, "Initial data update complete")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Global error in loadInitialData", e)
+            }
+        }
     }
 
     private fun setupRecyclerViews() {
@@ -95,6 +162,8 @@ class MainActivity : AppCompatActivity() {
     private fun performSearch(query: String, category: String?) {
         currentQuery = query
         showLoading(true)
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "performSearch started for: $query")
 
         RetrofitClient.medicineApi.searchMedicines(query, category, limit = 100)
             .enqueue(object : Callback<com.rxora.app.models.SearchResponse> {
@@ -102,10 +171,13 @@ class MainActivity : AppCompatActivity() {
                     call: Call<com.rxora.app.models.SearchResponse>,
                     response: Response<com.rxora.app.models.SearchResponse>
                 ) {
+                    Log.d(TAG, "performSearch response received in ${System.currentTimeMillis() - startTime}ms")
                     showLoading(false)
                     if (response.isSuccessful && response.body() != null) {
                         val medicines = response.body()!!.medicines
-                        medicineAdapter.setData(medicines)
+                        lifecycleScope.launch {
+                            medicineAdapter.setData(medicines)
+                        }
 
                         // Track the search
                         trackSearch(query, category, voiceSearch = false)
@@ -170,7 +242,9 @@ class MainActivity : AppCompatActivity() {
                     showLoading(false)
                     if (response.isSuccessful && response.body() != null) {
                         val medicines = response.body()!!.medicines
-                        medicineAdapter.setData(medicines)
+                        lifecycleScope.launch {
+                            medicineAdapter.setData(medicines)
+                        }
                         trackSearch(query, currentCategory, voiceSearch = true)
                         Toast.makeText(this@MainActivity, "Found ${medicines.size} results", Toast.LENGTH_SHORT).show()
                     } else {
@@ -193,7 +267,12 @@ class MainActivity : AppCompatActivity() {
             .enqueue(object : Callback<Unit> {
                 override fun onResponse(call: Call<Unit>, response: Response<Unit>) {
                     // Silently succeed
-                    loadRecentSearches() // Refresh recent searches
+                    lifecycleScope.launch {
+                        val recentResponse = RetrofitClient.medicineApi.getRecentSearches(userId)
+                        if (recentResponse.isSuccessful) {
+                            recentResponse.body()?.let { recentSearchAdapter?.setData(it) }
+                        }
+                    }
                 }
 
                 override fun onFailure(call: Call<Unit>, t: Throwable) {
@@ -202,66 +281,7 @@ class MainActivity : AppCompatActivity() {
             })
     }
 
-    private fun loadPresets() {
-        RetrofitClient.medicineApi.getPresetMedicines()
-            .enqueue(object : Callback<List<Medicine>> {
-                override fun onResponse(call: Call<List<Medicine>>, response: Response<List<Medicine>>) {
-                    if (response.isSuccessful && response.body() != null) {
-                        medicineAdapter.setData(response.body()!!)
-                    }
-                }
-
-                override fun onFailure(call: Call<List<Medicine>>, t: Throwable) {
-                    Toast.makeText(this@MainActivity, "Failed to load presets", Toast.LENGTH_SHORT).show()
-                }
-            })
-    }
-
-    private fun loadCategories() {
-        RetrofitClient.medicineApi.getCategories()
-            .enqueue(object : Callback<List<Category>> {
-                override fun onResponse(call: Call<List<Category>>, response: Response<List<Category>>) {
-                    if (response.isSuccessful && response.body() != null) {
-                        val categories = response.body()!!
-                        val categoryNames = mutableListOf("All Categories")
-                        categoryNames.addAll(categories.map { it.name })
-
-                        val adapter = ArrayAdapter(
-                            this@MainActivity,
-                            android.R.layout.simple_spinner_item,
-                            categoryNames
-                        )
-                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                        binding.categorySpinner.adapter = adapter
-                    }
-                }
-
-                override fun onFailure(call: Call<List<Category>>, t: Throwable) {
-                    Toast.makeText(this@MainActivity, "Failed to load categories", Toast.LENGTH_SHORT).show()
-                }
-            })
-    }
-
-    private fun loadRecentSearches() {
-        RetrofitClient.medicineApi.getRecentSearches(userId)
-            .enqueue(object : Callback<List<com.rxora.app.models.RecentSearch>> {
-                override fun onResponse(
-                    call: Call<List<com.rxora.app.models.RecentSearch>>,
-                    response: Response<List<com.rxora.app.models.RecentSearch>>
-                ) {
-                    if (response.isSuccessful && response.body() != null) {
-                        recentSearchAdapter?.setData(response.body()!!)
-                    }
-                }
-
-                override fun onFailure(
-                    call: Call<List<com.rxora.app.models.RecentSearch>>,
-                    t: Throwable
-                ) {
-                    // Silently fail for recent searches
-                }
-            })
-    }
+    // Removed old loadPresets, loadCategories, loadRecentSearches
 
     private fun showLoading(show: Boolean) {
         binding.loadingProgressBar.visibility = if (show) View.VISIBLE else View.GONE

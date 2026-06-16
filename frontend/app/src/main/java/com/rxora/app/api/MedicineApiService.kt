@@ -2,6 +2,7 @@ package com.rxora.app.api
 
 import com.rxora.app.models.*
 import retrofit2.Call
+import retrofit2.Response
 import retrofit2.http.*
 
 interface MedicineApiService {
@@ -23,17 +24,17 @@ interface MedicineApiService {
     
     // Get all categories
     @GET("/api/categories")
-    fun getCategories(): Call<List<Category>>
+    suspend fun getCategories(): Response<List<Category>>
     
     // Get preset medicines
     @GET("/api/presets")
-    fun getPresetMedicines(): Call<List<Medicine>>
+    suspend fun getPresetMedicines(): Response<List<Medicine>>
     
     // Get recent searches
     @GET("/api/recent-searches")
-    fun getRecentSearches(
+    suspend fun getRecentSearches(
         @Query("user_id") userId: String
-    ): Call<List<RecentSearch>>
+    ): Response<List<RecentSearch>>
     
     // Track a search for analytics
     @POST("/api/track-search")
