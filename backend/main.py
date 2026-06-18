@@ -8,7 +8,16 @@ from datetime import datetime, timedelta
 import redis
 import json
 import os
+import time
+import logging
 from typing import List, Optional
+
+# ==================== LOGGING SETUP ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ==================== CONFIG ====================
 DATABASE_URL = "postgresql://med_user:med_pass123@localhost:5432/medicines_db"
@@ -22,7 +31,7 @@ Base = declarative_base()
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # FastAPI app
-app = FastAPI(title="Medicine Search API", version="1.0.0")
+app = FastAPI(title="Medicine Search API - Optimized", version="2.0.0")
 
 # CORS for Android app
 app.add_middleware(
@@ -150,7 +159,7 @@ def init_db():
             db.add(medicine)
         
         db.commit()
-        print("✓ Sample medicines loaded into database")
+        logger.info("✓ Sample medicines loaded into database")
     
     db.close()
 
@@ -158,9 +167,15 @@ def init_db():
 @app.on_event("startup")
 async def startup():
     init_db()
-    print("✓ FastAPI server started")
-    print("✓ PostgreSQL connected")
-    print("✓ Redis connected")
+    logger.info("✓ FastAPI server started (v2.0 with caching)")
+    logger.info("✓ PostgreSQL connected")
+    logger.info("✓ Redis connected")
+    
+    # Check database size
+    db = SessionLocal()
+    count = db.query(func.count(Medicine.id)).scalar()
+    logger.info(f"✓ Database contains {count:,} medicines")
+    db.close()
 
 # ==================== API ENDPOINTS ====================
 
@@ -173,31 +188,81 @@ def get_db():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "database": "connected",
-        "redis": "connected",
-        "timestamp": datetime.utcnow()
-    }
+    """Health check endpoint with performance metrics"""
+    db = SessionLocal()
+    try:
+        # Check database
+        db_start = time.time()
+        db.execute("SELECT 1")
+        db_time = (time.time() - db_start) * 1000
+        
+        # Check Redis
+        redis_start = time.time()
+        redis_client.ping()
+        redis_time = (time.time() - redis_start) * 1000
+        
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "redis": "connected",
+            "performance": {
+                "database_ms": f"{db_time:.2f}",
+                "redis_ms": f"{redis_time:.2f}"
+            },
+            "timestamp": datetime.utcnow()
+        }
+    finally:
+        db.close()
 
-@app.post("/api/search")
+@app.get("/api/search") ## was a post req.
 async def search_medicines(
-    query: str = Query(..., min_length=1),
-    category: Optional[str] = None,
-    limit: int = 20,
+    query: str = Query(..., min_length=1, description="Medicne name ot search"),
+    category: Optional[str] = Query(None, description="Optional category filter"),
+    limit: int = Query(20, ge=1, le=100, description="Max results(1-100)"),
     db: Session = Depends(get_db)
 ):
     """
-    Search medicines by name/description
+    Search medicines by name/description with Redis caching
     
     Query Parameters:
     - query: search term (required)
     - category: filter by category (optional)
-    - limit: max results (default: 20)
+    - limit: max results (default: 20, max: 100)
     """
+    start_time = time.time()
+    
     try:
-        # Build search query
+        # Enforce max limit
+        limit = min(int(limit), 100)
+        
+        # Normalize query for cache
+        normalized_query = query.lower().strip()
+        category_key = category.lower().strip() if category else "all"
+
+        # Generate cache key
+        cache_key = f"search:{query.lower().strip()}:{category or 'all'}"
+        
+        # ===== STEP 1: Check Redis cache =====
+        redis_start = time.time()
+        try:
+            cached_result = redis_client.get(cache_key)
+            redis_time = (time.time() - redis_start) * 1000
+            
+            if cached_result:
+                result = json.loads(cached_result)
+                result["source"] = "redis_cache"
+                result["timing"] = {
+                    "redis_ms": f"{redis_time:.2f}",
+                    "total_ms": f"{(time.time() - start_time) * 1000:.2f}"
+                }
+                logger.info(f"CACHE HIT: '{query}' in {redis_time:.2f}ms")
+                return result
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+        
+        # ===== STEP 2: Query PostgreSQL =====
+        db_start = time.time()
+        
         search_filter = or_(
             Medicine.name.ilike(f"%{query}%"),
             Medicine.description.ilike(f"%{query}%")
@@ -210,43 +275,120 @@ async def search_medicines(
             medicines = medicines.filter(Medicine.category.ilike(f"%{category}%"))
         
         results = medicines.limit(limit).all()
+        db_time = (time.time() - db_start) * 1000
         
-        return {
+        # ===== STEP 3: Build response =====
+        medicines_data = [
+            {
+                 "id": m.id,
+                 "name": m.name,
+                 "category": m.category,
+                 "description": m.description,
+                 "is_preset": m.is_preset
+            }
+            for m in results
+        ]
+
+        response = {
             "query": query,
             "category": category,
             "count": len(results),
-            "medicines": [
-                {
-                    "id": m.id,
-                    "name": m.name,
-                    "category": m.category,
-                    "description": m.description,
-                    "is_preset": m.is_preset
-                }
-                for m in results
-            ]
+            "medicines": medicines_data,
+            "source": "database",
+            "timing": {
+                "database_ms": f"{db_time:.2f}",
+                "total_ms": f"{(time.time() - start_time) * 1000:.2f}"
+            }
         }
+        
+        # ===== STEP 4: Cache the result =====
+        try:
+            # Cache for 5 minutes
+            redis_client.setex(
+                cache_key,
+                300,  # 5 minutes
+                json.dumps({
+                    "query": query,
+                    "category": category,
+                    "count": len(results),
+                    "medicines": medicines_data
+                }, default=str)
+            )
+            logger.info(f"Cached result for '{query} ({len(results)} items)")
+
+        except Exception as e:
+            logger.warning(f"Failed to cache result: {e}")
+        
+        logger.info(f"SEARCH: '{query}' found {len(results)} results in {db_time:.2f}ms (DB)")
+        
+        return response
+        
     except Exception as e:
+        logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/search")  # ✅ OPTIONAL: Support POST as well
+async def search_medicines_post(
+    query: str = Query(..., min_length=1),
+    category: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Support POST requests as well (delegates to GET implementation)"""
+    return await search_medicines(query, category, limit, db)
 
 @app.get("/api/categories")
 async def get_categories(db: Session = Depends(get_db)):
-    """Get all available medicine categories"""
+    """Get all available medicine categories (cached)"""
     try:
+        cache_key = "categories:all"
+        
+        # Check cache
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                result = json.loads(cached)
+                result["source"] = "cache"
+                return result
+        except Exception:
+            pass
+        
+        # Query database
         categories = db.query(Medicine.category).distinct().all()
-        return {
+        result = {
             "categories": [cat[0] for cat in categories if cat[0]],
             "count": len(categories)
         }
+        
+        # Cache for 1 hour
+        try:
+            redis_client.setex(cache_key, 3600, json.dumps(result))
+        except Exception:
+            pass
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/medicines/presets")
 async def get_preset_medicines(db: Session = Depends(get_db)):
-    """Get 15 preset common medicines"""
+    """Get 15 preset common medicines (cached)"""
     try:
+        cache_key = "presets:all"
+        
+        # Check cache
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                result = json.loads(cached)
+                result["source"] = "cache"
+                return result
+        except Exception:
+            pass
+        
+        # Query database
         presets = db.query(Medicine).filter(Medicine.is_preset == True).all()
-        return {
+        result = {
             "count": len(presets),
             "medicines": [
                 {
@@ -258,6 +400,14 @@ async def get_preset_medicines(db: Session = Depends(get_db)):
                 for m in presets
             ]
         }
+        
+        # Cache for 24 hours (presets don't change often)
+        try:
+            redis_client.setex(cache_key, 86400, json.dumps(result, default=str))
+        except Exception:
+            pass
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -270,7 +420,6 @@ async def voice_search(file: UploadFile = File(...), db: Session = Depends(get_d
     """
     try:
         # TODO: Integrate Google Cloud Speech API
-        # For now, return placeholder
         return {
             "status": "voice_received",
             "file_name": file.filename,
@@ -384,21 +533,53 @@ async def get_user_analytics(user_id: str = Query(...), db: Session = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/performance-stats")
+async def performance_stats():
+    """Get performance statistics (for debugging)"""
+    try:
+        db = SessionLocal()
+        
+        # Get cache info
+        info = redis_client.info()
+        
+        return {
+            "redis": {
+                "connected": True,
+                "used_memory": info.get("used_memory_human", "unknown"),
+                "hit_rate": info.get("keyspace_hits", 0),
+                "total_commands": info.get("total_commands_processed", 0)
+            },
+            "database": {
+                "total_medicines": db.query(func.count(Medicine.id)).scalar(),
+                "cached_categories": redis_client.exists("categories:all"),
+                "cached_presets": redis_client.exists("presets:all")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Stats error: {e}")
+        return {"error": str(e)}
+
 @app.get("/")
 async def root():
     """API documentation endpoint"""
     return {
-        "name": "Medicine Search API",
-        "version": "1.0.0",
+        "name": "Medicine Search API - Optimized v2.0",
+        "version": "2.0.0",
+        "features": [
+            "Redis search result caching (5 min)",
+            "pg_trgm indexing for fast text search",
+            "Performance timing for each request",
+            "Reduced result limit (20 instead of 100)"
+        ],
         "endpoints": {
             "health": "GET /health",
-            "search": "POST /api/search?query=aspirin&category=pills&limit=20",
+            "search": "POST /api/search?query=aspirin&limit=20",
             "categories": "GET /api/categories",
             "presets": "GET /api/medicines/presets",
-            "voice": "POST /api/voice-search",
-            "recent": "GET /api/recent-searches?user_id=user123&limit=10",
+            "recent": "GET /api/recent-searches?user_id=user123",
             "track": "POST /api/track-search",
-            "analytics": "GET /api/user-analytics?user_id=user123"
+            "analytics": "GET /api/user-analytics?user_id=user123",
+            "stats": "GET /api/performance-stats"
         }
     }
 
