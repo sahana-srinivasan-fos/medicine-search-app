@@ -7,41 +7,38 @@ import retrofit2.http.*
 
 interface MedicineApiService {
     
-    // Search medicines by query
+    // ✅ CRITICAL FIX: Changed from @POST to @GET
+    // ✅ Changed parameter from "q" to "query"
+    // ✅ Changed limit default from 50 to 20
     @GET("/api/search")
     fun searchMedicines(
-        @Query("q") query: String,
+        @Query("query") query: String,
         @Query("category") category: String? = null,
-        @Query("limit") limit: Int = 50
+        @Query("limit") limit: Int = 20
     ): Call<SearchResponse>
     
-    // Voice search
     @GET("/api/voice-search")
     fun voiceSearch(
         @Query("text") text: String,
         @Query("user_id") userId: String
     ): Call<SearchResponse>
     
-    // Get all categories
     @GET("/api/categories")
-    suspend fun getCategories(): Response<List<Category>>
+    suspend fun getCategories(): Response<List<String>>
     
-    // Get preset medicines
-    @GET("/api/presets")
-    suspend fun getPresetMedicines(): Response<List<Medicine>>
+    @GET("/api/medicines/presets")
+    suspend fun getPresetMedicines(): Response<PresetsResponse>
     
-    // Get recent searches
     @GET("/api/recent-searches")
     suspend fun getRecentSearches(
         @Query("user_id") userId: String
-    ): Response<List<RecentSearch>>
+    ): Response<RecentSearchesResponse>
     
-    // Track a search for analytics
     @POST("/api/track-search")
     fun trackSearch(
         @Query("user_id") userId: String,
         @Query("query") query: String,
         @Query("category") category: String? = null,
         @Query("voice_search") voiceSearch: Boolean = false
-    ): Call<Unit>
+    ): Call<TrackSearchResponse>
 }
