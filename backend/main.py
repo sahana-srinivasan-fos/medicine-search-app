@@ -94,7 +94,7 @@ async def health_check():
         return {
             "status": "healthy",
             # "database": "none",
-            "medicines_loaded": len(MEDICINES)
+            "medicines_loaded": len(MEDICINES),
             # "redis": "connected",
             # "performance": {
             #     "redis_ms": f"{redis_time:.2f}"
