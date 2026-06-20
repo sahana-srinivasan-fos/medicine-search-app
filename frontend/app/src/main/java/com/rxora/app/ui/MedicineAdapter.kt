@@ -54,10 +54,9 @@ class MedicineAdapter(
 
     inner class MedicineViewHolder(private val binding: ItemMedicineBinding) :
         RecyclerView.ViewHolder(binding.root) {
-        
+
         fun bind(medicine: Medicine) {
             binding.medicineName.text = medicine.name
-            binding.medicineCategory.text = "Category: ${medicine.category}"
             binding.medicineDescription.text = medicine.description ?: "No description available"
         }
     }

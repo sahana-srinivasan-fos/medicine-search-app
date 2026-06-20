@@ -25,14 +25,6 @@
             android:textColor="?attr/colorPrimary" />
 
         <TextView
-            android:id="@+id/medicine_category"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="?attr/colorSecondary" />
-
-        <TextView
             android:id="@+id/medicine_description"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

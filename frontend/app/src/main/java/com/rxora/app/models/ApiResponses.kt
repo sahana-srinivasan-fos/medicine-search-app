@@ -4,7 +4,6 @@ data class SearchResponse(
     val medicines: List<Medicine>,
     val count: Int,
     val query: String,
-    val category: String?,
     val source: String? = null,  // "database" or "redis_cache"
     val timing: Map<String, String>? = null  // performance metrics
 )
@@ -17,7 +16,6 @@ data class PresetsResponse(
 data class RecentSearch(
     val id: Int,
     val query: String,
-    val category: String?,
     val searched_at: String,
     val voice_search: Boolean
 )
@@ -31,7 +29,6 @@ data class RecentSearchesResponse(
 data class TrackSearchRequest(
     val user_id: String,
     val query: String,
-    val category: String? = null,
     val voice_search: Boolean = false
 )
 
@@ -57,6 +54,5 @@ data class RedisStats(
 
 data class DatabaseStats(
     val total_medicines: Int,
-    val cached_categories: Boolean,
     val cached_presets: Boolean
 )
