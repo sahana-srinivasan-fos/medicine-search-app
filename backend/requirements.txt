@@ -1,5 +1,4 @@
-fastapi==0.104.1
-uvicorn==0.24.0
-redis==5.0.1
-python-multipart==0.0.6
-pydantic==2.5.0
+fastapi
+uvicorn[standard]
+redis
+python-multipart
