@@ -14,13 +14,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
 import com.rxora.app.models.Medicine
+import com.rxora.app.models.TrackSearchRequest
 import com.rxora.app.ui.MedicineAdapter
 import com.rxora.app.ui.RecentSearchAdapter
 import com.rxora.app.utils.UserIdManager
 import kotlinx.coroutines.*
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -29,9 +27,7 @@ class MainActivity : AppCompatActivity() {
     private val medicineAdapter = MedicineAdapter()
     private var recentSearchAdapter: RecentSearchAdapter? = null
     private lateinit var userId: String
-    private var currentQuery = ""
-
-    // ✅ DEBOUNCE MECHANISM
+    
     private var searchJob: Job? = null
     private val DEBOUNCE_DELAY_MS = 300L
 
@@ -42,101 +38,58 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate started")
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // ✅ FIX #1: INSTANT KEYBOARD AUTO-FOCUS
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
 
         userId = UserIdManager.getUserId(this)
-        Log.d(TAG, "User ID: $userId")
 
         setupRecyclerViews()
-        setupRealTimeSearch()  // ✅ NEW: Real-time search with debounce
+        setupRealTimeSearch()
         setupButtons()
 
         loadInitialData()
     }
 
-    // ✅ FIX #2: REAL-TIME DEBOUNCED SEARCH (300ms)
     private fun setupRealTimeSearch() {
         binding.searchEditText.doOnTextChanged { text, _, _, _ ->
             val query = text?.toString()?.trim() ?: ""
-
-            // Cancel previous search job
             searchJob?.cancel()
 
             if (query.isEmpty()) {
                 showLoading(false)
-                lifecycleScope.launch {
-                    medicineAdapter.setData(emptyList())
-                }
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "Enter query to begin"
+                binding.performanceText.text = ""
+                medicineAdapter.submitList(emptyList())
                 return@doOnTextChanged
             }
 
-            // Start debounced search
             searchJob = lifecycleScope.launch {
-                try {
-                    delay(DEBOUNCE_DELAY_MS)  // Wait 300ms
-
-                    val currentText = binding.searchEditText.text.toString().trim()
-                    if (currentText != query) {
-                        Log.d(TAG, "Query changed, skipping search")
-                        return@launch
-                    }
-
-                    Log.d(TAG, "Executing search for: '$query'")
-                    performSearch(query)
-
-                } catch (e: CancellationException) {
-                    Log.d(TAG, "Search cancelled (user typing)")
-                }
+                delay(DEBOUNCE_DELAY_MS)
+                performSearch(query)
             }
         }
     }
 
     private fun loadInitialData() {
         lifecycleScope.launch {
-            Log.d(TAG, "Data loading started")
-
             try {
-                supervisorScope {
-                    val presetsDeferred = async(Dispatchers.IO) {
-                        try { RetrofitClient.medicineApi.getPresetMedicines() }
-                        catch (e: Exception) {
-                            Log.e(TAG, "Error fetching presets", e)
-                            null
-                        }
-                    }
-                    val recentDeferred = async(Dispatchers.IO) {
-                        try { RetrofitClient.medicineApi.getRecentSearches(userId) }
-                        catch (e: Exception) {
-                            Log.e(TAG, "Error fetching recent searches", e)
-                            null
-                        }
-                    }
-
-                    val presetsResponse = presetsDeferred.await()
-                    val recentResponse = recentDeferred.await()
-
-                    withContext(Dispatchers.Main) {
-                        presetsResponse?.body()?.medicines?.let {
-                            medicineAdapter.setData(it)
-                        }
-
-                        recentResponse?.body()?.searches?.let {
+                val response = withContext(Dispatchers.IO) {
+                    RetrofitClient.medicineApi.getRecentSearches(userId)
+                }
+                if (response.isSuccessful) {
+                    response.body()?.searches?.let {
+                        if (it.isNotEmpty()) {
+                            binding.recentTitle.visibility = View.VISIBLE
                             recentSearchAdapter?.setData(it)
                         }
-
-                        // ✅ REQUEST FOCUS ON SEARCH
-                        binding.searchEditText.requestFocus()
                     }
-
-                    Log.d(TAG, "Initial data update complete")
                 }
+                binding.searchEditText.requestFocus()
             } catch (e: Exception) {
-                Log.e(TAG, "Global error in loadInitialData", e)
+                Log.e(TAG, "Init error", e)
             }
         }
     }
@@ -149,6 +102,7 @@ class MainActivity : AppCompatActivity() {
 
         recentSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
             binding.searchEditText.setText(query)
+            binding.searchEditText.setSelection(query.length)
         })
         binding.recentSearchesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
@@ -157,63 +111,60 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        binding.searchButton.setOnClickListener {
-            val query = binding.searchEditText.text.toString().trim()
-            if (query.isNotEmpty()) {
-                performSearch(query)
-            } else {
-                Toast.makeText(this, "Please enter a medicine name", Toast.LENGTH_SHORT).show()
-            }
-        }
-
         binding.voiceButton.setOnClickListener {
             startVoiceSearch()
         }
     }
 
-    private fun performSearch(query: String) {
-        currentQuery = query
+    private suspend fun performSearch(query: String) {
         showLoading(true)
-        val startTime = System.currentTimeMillis()
+        binding.statusText.visibility = View.GONE
+        
+        try {
+            val response = withContext(Dispatchers.IO) {
+                RetrofitClient.medicineApi.searchMedicines(query, limit = 20)
+            }
+            
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                val medicines = body.medicines
+                
+                medicineAdapter.submitList(medicines)
 
-        RetrofitClient.medicineApi.searchMedicines(query, limit = 20)
-            .enqueue(object : Callback<com.rxora.app.models.SearchResponse> {
-                override fun onResponse(
-                    call: Call<com.rxora.app.models.SearchResponse>,
-                    response: Response<com.rxora.app.models.SearchResponse>
-                ) {
-                    val elapsed = System.currentTimeMillis() - startTime
-                    Log.d(TAG, "Search completed in ${elapsed}ms")
-                    showLoading(false)
-
-                    if (response.isSuccessful && response.body() != null) {
-                        val medicines = response.body()!!.medicines
-                        lifecycleScope.launch {
-                            medicineAdapter.setData(medicines)
-                        }
-                        trackSearch(query, voiceSearch = false)
-                    } else {
-                        Toast.makeText(this@MainActivity, "Search failed", Toast.LENGTH_SHORT).show()
-                    }
+                if (medicines.isEmpty()) {
+                    binding.statusText.visibility = View.VISIBLE
+                    binding.statusText.text = "No records found for '$query'"
+                } else {
+                    binding.statusText.visibility = View.GONE
                 }
 
-                override fun onFailure(call: Call<com.rxora.app.models.SearchResponse>, t: Throwable) {
-                    showLoading(false)
-                    Toast.makeText(this@MainActivity, "Error: ${t.message}", Toast.LENGTH_SHORT).show()
-                }
-            })
+                binding.performanceText.text = "Source: ${body.source} | Latency: ${body.timing_ms}ms"
+                
+                trackSearch(query, voiceSearch = false)
+            } else {
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "Backend services unavailable"
+            }
+        } catch (e: Exception) {
+            if (e !is CancellationException) {
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "Network connection failed"
+            }
+        } finally {
+            showLoading(false)
+        }
     }
 
     private fun startVoiceSearch() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Say medicine name...")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Identify medicine...")
         }
         try {
             startActivityForResult(intent, SPEECH_REQUEST_CODE)
         } catch (e: Exception) {
-            Toast.makeText(this, "Voice input not supported", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Voice capability not found", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -222,37 +173,40 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == SPEECH_REQUEST_CODE && resultCode == RESULT_OK) {
             val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!results.isNullOrEmpty()) {
-                binding.searchEditText.setText(results[0])
+                val spokenText = results[0]
+                binding.searchEditText.setText(spokenText)
+                binding.searchEditText.setSelection(spokenText.length)
+                // Use a separate job for tracking voice search to avoid cancellation issues
+                lifecycleScope.launch {
+                    trackSearch(spokenText, voiceSearch = true)
+                }
             }
         }
     }
 
-    private fun trackSearch(query: String, voiceSearch: Boolean) {
-        RetrofitClient.medicineApi.trackSearch(userId, query, voiceSearch)
-            .enqueue(object : Callback<com.rxora.app.models.TrackSearchResponse> {
-                override fun onResponse(call: Call<com.rxora.app.models.TrackSearchResponse>, response: Response<com.rxora.app.models.TrackSearchResponse>) {
-                    if (response.isSuccessful) {
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            try {
-                                val recentResponse = RetrofitClient.medicineApi.getRecentSearches(userId)
-                                if (recentResponse.isSuccessful) {
-                                    recentResponse.body()?.searches?.let { searches ->
-                                        withContext(Dispatchers.Main) {
-                                            recentSearchAdapter?.setData(searches)
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error fetching recent", e)
-                            }
-                        }
+    private suspend fun trackSearch(query: String, voiceSearch: Boolean) {
+        try {
+            val request = TrackSearchRequest(userId, query, voiceSearch)
+            val response = withContext(Dispatchers.IO) {
+                RetrofitClient.medicineApi.trackSearch(request)
+            }
+            
+            if (response.isSuccessful) {
+                val recentResponse = withContext(Dispatchers.IO) {
+                    RetrofitClient.medicineApi.getRecentSearches(userId)
+                }
+                if (recentResponse.isSuccessful) {
+                    recentResponse.body()?.searches?.let { searches ->
+                        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
+                        recentSearchAdapter?.setData(searches)
                     }
                 }
-
-                override fun onFailure(call: Call<com.rxora.app.models.TrackSearchResponse>, t: Throwable) {
-                    // Silent fail for analytics
-                }
-            })
+            }
+        } catch (e: Exception) {
+            if (e !is CancellationException) {
+                Log.e(TAG, "Tracking failed", e)
+            }
+        }
     }
 
     private fun showLoading(show: Boolean) {

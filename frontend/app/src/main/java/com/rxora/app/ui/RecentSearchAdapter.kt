@@ -36,8 +36,7 @@ class RecentSearchAdapter(
         RecyclerView.ViewHolder(binding.root) {
         
         fun bind(search: RecentSearch) {
-            val icon = if (search.voice_search) "🎤" else "🔍"
-            binding.recentSearchText.text = "$icon ${search.query}"
+            binding.recentSearchText.text = search.query.uppercase()
             binding.root.setOnClickListener {
                 onSearchClick(search.query)
             }

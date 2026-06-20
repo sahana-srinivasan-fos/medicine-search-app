@@ -1,18 +1,12 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime
 import redis
 import json
 import os
 import time
 import logging
-from typing import List, Optional
-from dotenv import load_dotenv
-
-# ==================== LOAD .ENV ====================
-load_dotenv()
-password = os.getenv("PASSWORD")
 
 # ==================== LOGGING SETUP ====================
 logging.basicConfig(
@@ -28,7 +22,9 @@ REDIS_URL = "redis://localhost:6379"
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # In-memory medicines cache (loaded on startup)
-MEDICINES = []
+MEDICINES: list[str] = []
+# Precomputed lowercase medicine names (for faster searching)
+MEDICINES_LOWER: list[str] = []
 
 # Preset medicines (used for quick UI lists)
 PRESET_MEDICINES = [
@@ -58,28 +54,6 @@ app.add_middleware(
 
 # ==================== PYDANTIC MODELS ====================
 
-class MedicineResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    is_preset: bool
-
-    class Config:
-        from_attributes = True
-
-class RecentSearchResponse(BaseModel):
-    id: int
-    query: str
-    voice_search: bool
-    searched_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 20
-
 class TrackSearchRequest(BaseModel):
     user_id: str
     query: str
@@ -89,13 +63,20 @@ class TrackSearchRequest(BaseModel):
 @app.on_event("startup")
 async def startup():
     global MEDICINES
+    global MEDICINES_LOWER
 
     try:
         with open("medicines.json", "r", encoding="utf-8") as f:
             MEDICINES = json.load(f)
-        logger.info(f"✓ Loaded {len(MEDICINES):,} medicines")
+
+        # Precompute lowercase names for efficient searching without allocations
+        MEDICINES_LOWER = [m.lower() for m in MEDICINES]
+
+        logger.info(f"✓ Loaded {len(MEDICINES):,} medicines into memory")
     except Exception as e:
-        logger.warning(f"Could not load medicines.json into memory: {e}")
+        logger.critical(f"Failed to load medicines.json at startup: {e}")
+        # Do not allow the API to start with an empty dataset
+        raise RuntimeError(f"Missing or unreadable medicines.json: {e}")
 
     logger.info("✓ FastAPI server started (v2.0 with caching)")
     logger.info("✓ Redis connected")
@@ -134,30 +115,30 @@ async def search_medicines(
 
     cache_key = f"search:{query}"
 
-    try:
-        cached = redis_client.get(cache_key)
-
-        if cached:
-            result = json.loads(cached)
-            result["source"] = "redis"
-            return result
-    except:
-        pass
-
+    # Optimize search using precomputed lowercase names to avoid repeated allocations.
     matches = []
 
-    for idx, medicine in enumerate(MEDICINES):
-        if query in medicine.lower():
+    q = query  # already lowercased
+    meds = MEDICINES
+    meds_lower = MEDICINES_LOWER
 
-            matches.append({
-                "id": idx,
-                "name": medicine,
-                "description": "",
-                "is_preset": False
-            })
-
+    # 1) Collect prefix matches (startswith) first to preserve priority ranking
+    for idx, m_lower in enumerate(meds_lower):
+        if m_lower.startswith(q):
+            matches.append({"id": idx, "name": meds[idx], "description": "", "is_preset": False})
             if len(matches) >= limit:
                 break
+
+    # 2) If not enough, collect contains matches (but not those already added)
+    if len(matches) < limit:
+        existing_ids = {item["id"] for item in matches}
+        for idx, m_lower in enumerate(meds_lower):
+            if idx in existing_ids:
+                continue
+            if q in m_lower:
+                matches.append({"id": idx, "name": meds[idx], "description": "", "is_preset": False})
+                if len(matches) >= limit:
+                    break
 
     response = {
         "query": query,
@@ -167,14 +148,9 @@ async def search_medicines(
         "timing_ms": round((time.time() - start_time) * 1000, 2)
     }
 
-    try:
-        redis_client.setex(
-            cache_key,
-            300,
-            json.dumps(response)
-        )
-    except:
-        pass
+    # We intentionally do not cache search results in Redis because the
+    # entire dataset is in-memory and searches are cheap with precomputed
+    # lowercase names. Redis is still used for recent searches and analytics.
 
     return response
 

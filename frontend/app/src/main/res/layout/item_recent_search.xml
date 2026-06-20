@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.chip.Chip xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/recent_search_text"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:chipBackgroundColor="?attr/colorSurfaceVariant"
-    app:chipCornerRadius="16dp"
-    app:chipStrokeWidth="0dp" />
+    android:layout_marginEnd="8dp"
+    android:background="@color/surface"
+    android:padding="1dp">
+
+    <TextView
+        android:id="@+id/recent_search_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@color/card_bg"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
+</FrameLayout>

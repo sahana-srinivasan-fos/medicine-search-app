@@ -1,18 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.Frontend" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.RxOra" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryContainer">@color/purple_700</item>
-        <item name="colorOnPrimaryContainer">@color/white</item>
+        <item name="colorPrimary">@color/primary_accent</item>
+        <item name="colorOnPrimary">@color/background</item>
 
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorOnSecondary">@color/black</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
 
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">?attr/colorPrimary</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+
+        <!-- Shape appearance -->
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.RxOra.Small</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.RxOra.Medium</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.RxOra.Large</item>
+    </style>
+
+    <style name="ShapeAppearance.RxOra.Small" parent="ShapeAppearance.Material3.SmallComponent">
+        <item name="cornerSize">2dp</item>
+    </style>
+
+    <style name="ShapeAppearance.RxOra.Medium" parent="ShapeAppearance.Material3.MediumComponent">
+        <item name="cornerSize">4dp</item>
+    </style>
+
+    <style name="ShapeAppearance.RxOra.Large" parent="ShapeAppearance.Material3.LargeComponent">
+        <item name="cornerSize">4dp</item>
     </style>
 </resources>

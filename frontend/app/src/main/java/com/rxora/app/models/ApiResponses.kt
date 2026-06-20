@@ -1,29 +1,29 @@
 package com.rxora.app.models
 
 data class SearchResponse(
-    val medicines: List<Medicine>,
-    val count: Int,
     val query: String,
-    val source: String? = null,  // "database" or "redis_cache"
-    val timing: Map<String, String>? = null  // performance metrics
+    val count: Int,
+    val medicines: List<Medicine>,
+    val source: String,
+    val timing_ms: Float
 )
 
 data class PresetsResponse(
+    val count: Int,
     val medicines: List<Medicine>,
-    val count: Int
+    val source: String? = null
 )
 
 data class RecentSearch(
-    val id: Int,
     val query: String,
-    val searched_at: String,
+    val timestamp: String,
     val voice_search: Boolean
 )
 
 data class RecentSearchesResponse(
     val user_id: String,
-    val searches: List<RecentSearch>,
-    val count: Int
+    val count: Int,
+    val searches: List<RecentSearch>
 )
 
 data class TrackSearchRequest(
@@ -39,9 +39,15 @@ data class TrackSearchResponse(
     val timestamp: String
 )
 
+data class UserAnalytics(
+    val user_id: String,
+    val search_count: Int,
+    val searches_today: Int,
+    val last_search_at: String?
+)
+
 data class PerformanceStats(
-    val redis: RedisStats?,
-    val database: DatabaseStats?,
+    val redis: RedisStats? = null,
     val error: String? = null
 )
 
@@ -50,9 +56,4 @@ data class RedisStats(
     val used_memory: String,
     val hit_rate: Long,
     val total_commands: Long
-)
-
-data class DatabaseStats(
-    val total_medicines: Int,
-    val cached_presets: Boolean
 )
