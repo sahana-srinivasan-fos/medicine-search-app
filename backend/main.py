@@ -88,16 +88,17 @@ async def health_check():
     """Health check endpoint with performance metrics"""
     try:
         redis_start = time.time()
-        redis_client.ping()
+        # redis_client.ping()
         redis_time = (time.time() - redis_start) * 1000
 
         return {
             "status": "healthy",
-            "database": "none",
-            "redis": "connected",
-            "performance": {
-                "redis_ms": f"{redis_time:.2f}"
-            },
+            # "database": "none",
+            "medicines_loaded": len(MEDICINES)
+            # "redis": "connected",
+            # "performance": {
+            #     "redis_ms": f"{redis_time:.2f}"
+            # },
             "timestamp": datetime.utcnow()
         }
     except Exception as e:
