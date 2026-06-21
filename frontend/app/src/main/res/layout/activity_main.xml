@@ -87,7 +87,7 @@
         android:text="Ready for query"
         android:textColor="@color/text_secondary" />
 
-    <!-- Recent Searches Section (Fixed) -->
+    <!-- Recent Searches Section -->
     <LinearLayout
         android:id="@+id/recent_section"
         android:layout_width="match_parent"
@@ -107,6 +107,33 @@
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recent_searches_recycler_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:clipToPadding="false"
+            android:orientation="horizontal" />
+    </LinearLayout>
+
+    <!-- Preset Medicines Section -->
+    <LinearLayout
+        android:id="@+id/preset_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/preset_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PRESETS"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/preset_recycler_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"

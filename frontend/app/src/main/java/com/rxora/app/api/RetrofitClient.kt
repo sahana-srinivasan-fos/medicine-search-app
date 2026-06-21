@@ -10,7 +10,7 @@ object RetrofitClient {
     // For emulator testing: use 10.0.2.2 (special IP that refers to host machine)
     // For physical device: use your machine's IP address (192.168.X.X)
     // After deployment: use your Render URL (https://your-app.onrender.com/)
-    private const val BASE_URL = "http://10.0.2.2:8000/"
+    private const val BASE_URL = "https://rxora.onrender.com/"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS) // Short timeout for local dev

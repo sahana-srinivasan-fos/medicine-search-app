@@ -4,8 +4,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
@@ -14,10 +16,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
 import com.rxora.app.models.Medicine
-import com.rxora.app.models.TrackSearchRequest
+import com.rxora.app.models.RecentSearch
 import com.rxora.app.ui.MedicineAdapter
 import com.rxora.app.ui.RecentSearchAdapter
-import com.rxora.app.utils.UserIdManager
+import com.rxora.app.utils.RecentSearchStore
 import kotlinx.coroutines.*
 import java.util.Locale
 
@@ -26,9 +28,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val medicineAdapter = MedicineAdapter()
     private var recentSearchAdapter: RecentSearchAdapter? = null
-    private lateinit var userId: String
-    
+    private var presetSearchAdapter: RecentSearchAdapter? = null
+
     private var searchJob: Job? = null
+    private var searchStartTime: Long = 0L
     private val DEBOUNCE_DELAY_MS = 300L
 
     companion object {
@@ -42,8 +45,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-
-        userId = UserIdManager.getUserId(this)
 
         setupRecyclerViews()
         setupRealTimeSearch()
@@ -63,35 +64,52 @@ class MainActivity : AppCompatActivity() {
                 binding.statusText.text = "Enter query to begin"
                 binding.performanceText.text = ""
                 medicineAdapter.submitList(emptyList())
+                binding.presetSection.visibility = View.VISIBLE
+                binding.recentTitle.visibility = if (recentSearchAdapter?.itemCount ?: 0 > 0) View.VISIBLE else View.GONE
                 return@doOnTextChanged
             }
+
+            binding.presetSection.visibility = View.GONE
+            binding.statusText.visibility = View.VISIBLE
+            binding.statusText.text = "Searching..."
+            binding.performanceText.text = ""
+            searchStartTime = System.nanoTime()
 
             searchJob = lifecycleScope.launch {
                 delay(DEBOUNCE_DELAY_MS)
                 performSearch(query)
             }
         }
+
+        binding.searchEditText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                val query = binding.searchEditText.text?.toString()?.trim() ?: ""
+                if (query.isNotEmpty()) {
+                    searchJob?.cancel()
+                    searchStartTime = System.nanoTime()
+                    lifecycleScope.launch {
+                        performSearch(query)
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        }
     }
 
     private fun loadInitialData() {
-        lifecycleScope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    RetrofitClient.medicineApi.getRecentSearches(userId)
-                }
-                if (response.isSuccessful) {
-                    response.body()?.searches?.let {
-                        if (it.isNotEmpty()) {
-                            binding.recentTitle.visibility = View.VISIBLE
-                            recentSearchAdapter?.setData(it)
-                        }
-                    }
-                }
-                binding.searchEditText.requestFocus()
-            } catch (e: Exception) {
-                Log.e(TAG, "Init error", e)
-            }
+        val searches = RecentSearchStore.loadRecentSearches(this)
+        if (searches.isNotEmpty()) {
+            binding.recentTitle.visibility = View.VISIBLE
+            recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
         }
+
+        lifecycleScope.launch {
+            loadPresetMedicines()
+        }
+
+        binding.searchEditText.requestFocus()
     }
 
     private fun setupRecyclerViews() {
@@ -108,6 +126,15 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
             adapter = recentSearchAdapter
         }
+
+        presetSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
+            binding.searchEditText.setText(query)
+            binding.searchEditText.setSelection(query.length)
+        })
+        binding.presetRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+            adapter = presetSearchAdapter
+        }
     }
 
     private fun setupButtons() {
@@ -119,16 +146,16 @@ class MainActivity : AppCompatActivity() {
     private suspend fun performSearch(query: String) {
         showLoading(true)
         binding.statusText.visibility = View.GONE
-        
+
         try {
             val response = withContext(Dispatchers.IO) {
                 RetrofitClient.medicineApi.searchMedicines(query, limit = 20)
             }
-            
+
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
                 val medicines = body.medicines
-                
+
                 medicineAdapter.submitList(medicines)
 
                 if (medicines.isEmpty()) {
@@ -139,8 +166,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 binding.performanceText.text = "Source: ${body.source} | Latency: ${body.timing_ms}ms"
-                
-                trackSearch(query, voiceSearch = false)
+
+                saveRecentSearch(query)
             } else {
                 binding.statusText.visibility = View.VISIBLE
                 binding.statusText.text = "Backend services unavailable"
@@ -176,36 +203,33 @@ class MainActivity : AppCompatActivity() {
                 val spokenText = results[0]
                 binding.searchEditText.setText(spokenText)
                 binding.searchEditText.setSelection(spokenText.length)
-                // Use a separate job for tracking voice search to avoid cancellation issues
-                lifecycleScope.launch {
-                    trackSearch(spokenText, voiceSearch = true)
-                }
+                saveRecentSearch(spokenText)
             }
         }
     }
 
-    private suspend fun trackSearch(query: String, voiceSearch: Boolean) {
+    private fun saveRecentSearch(query: String) {
+        val searches = RecentSearchStore.addRecentSearch(this, query)
+        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
+        recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
+    }
+
+    private suspend fun loadPresetMedicines() {
         try {
-            val request = TrackSearchRequest(userId, query, voiceSearch)
             val response = withContext(Dispatchers.IO) {
-                RetrofitClient.medicineApi.trackSearch(request)
+                RetrofitClient.medicineApi.getPresetMedicines()
             }
-            
-            if (response.isSuccessful) {
-                val recentResponse = withContext(Dispatchers.IO) {
-                    RetrofitClient.medicineApi.getRecentSearches(userId)
-                }
-                if (recentResponse.isSuccessful) {
-                    recentResponse.body()?.searches?.let { searches ->
-                        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
-                        recentSearchAdapter?.setData(searches)
+            if (response.isSuccessful && response.body() != null) {
+                val items = response.body()!!.medicines.map { RecentSearch(query = it.name) }
+                if (items.isNotEmpty()) {
+                    presetSearchAdapter?.setData(items)
+                    if (binding.searchEditText.text.isNullOrEmpty()) {
+                        binding.presetSection.visibility = View.VISIBLE
                     }
                 }
             }
         } catch (e: Exception) {
-            if (e !is CancellationException) {
-                Log.e(TAG, "Tracking failed", e)
-            }
+            Log.w(TAG, "Preset load failed", e)
         }
     }
 
