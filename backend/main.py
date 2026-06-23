@@ -8,7 +8,7 @@ import json
 import time
 import logging
 
-from database import engine
+from database import engine, SessionLocal, Base
 from models import *
 
 # ==================== LOGGING SETUP ====================
@@ -79,6 +79,19 @@ class CorrectionResponse(BaseModel):
     corrected: str
     confidence: int
 
+def seed_medicine_master(session, medicines: list[str]) -> int:
+    existing_count = session.query(MedicineMaster).count()
+    if existing_count > 0:
+        logger.info("✓ MedicineMaster already contains %d medicines", existing_count)
+        return existing_count
+
+    objects = [MedicineMaster(name=name, manufacturer="", category="") for name in medicines]
+    session.bulk_save_objects(objects)
+    session.commit()
+    logger.info("✓ Seeded %d medicines into MedicineMaster", len(medicines))
+    return len(medicines)
+
+
 # Initialize application on startup
 @app.on_event("startup")
 async def startup():
@@ -96,12 +109,15 @@ async def startup():
 
     try:
         with data_path.open("r", encoding="utf-8") as f:
-            MEDICINES = json.load(f)
+            loaded_medicines = json.load(f)
 
-        if not MEDICINES:
+        if not loaded_medicines:
             raise RuntimeError("medicines.json is empty")
 
-        # Precompute lowercase names for efficient searching without allocations
+        with SessionLocal() as session:
+            seed_medicine_master(session, loaded_medicines)
+
+        MEDICINES = loaded_medicines
         MEDICINES_LOWER = [m.lower() for m in MEDICINES]
 
         logger.info(
@@ -132,9 +148,13 @@ def find_fuzzy_results(query: str, limit: int = 5, exclude_ids: set[int] = None)
     if len(query) < 3 or limit <= 0:
         return []
 
+    with SessionLocal() as session:
+        rows = session.query(MedicineMaster.id, MedicineMaster.name).order_by(MedicineMaster.id).all()
+        names_lower = [name.lower() for _, name in rows]
+
     results = process.extract(
         query,
-        MEDICINES_LOWER,
+        names_lower,
         scorer=fuzz.partial_ratio,
         processor=lambda x: x,
         limit=limit * 3,
@@ -144,11 +164,12 @@ def find_fuzzy_results(query: str, limit: int = 5, exclude_ids: set[int] = None)
     best_matches: list[tuple[int, float]] = []
     seen = set()
 
-    for choice, score, idx in results:
-        if idx in seen or idx in exclude_ids:
+    for _, score, idx in results:
+        row_id = rows[idx][0]
+        if row_id in seen or row_id in exclude_ids:
             continue
-        seen.add(idx)
-        best_matches.append((idx, float(score)))
+        seen.add(row_id)
+        best_matches.append((row_id, float(score)))
         if len(best_matches) >= limit:
             break
 
@@ -165,45 +186,54 @@ async def search_medicines(
     if not query:
         raise HTTPException(status_code=422, detail="Query cannot be empty")
 
-    medicines = MEDICINES
-    meds_lower = MEDICINES_LOWER
     matches: list[MedicineResponse] = []
 
-    def make_result(index: int, confidence: float = 100.0, match_type: str = "prefix") -> MedicineResponse:
-        name = medicines[index]
+    def make_result(row: MedicineMaster, confidence: float = 100.0, match_type: str = "prefix") -> MedicineResponse:
         return MedicineResponse(
-            id=index,
-            name=name,
+            id=row.id,
+            name=row.name,
             description="",
-            is_preset=meds_lower[index] in PRESET_SET,
+            is_preset=row.name.lower() in PRESET_SET,
             confidence=confidence,
             match_type=match_type
         )
 
-    # 1) Collect prefix matches (startswith) first to preserve priority ranking
-    for idx, m_lower in enumerate(meds_lower):
-        if m_lower.startswith(query):
-            matches.append(make_result(idx, confidence=100.0, match_type="prefix"))
-            if len(matches) >= limit:
-                break
+    with SessionLocal() as session:
+        prefix_query = (
+            session.query(MedicineMaster)
+            .filter(MedicineMaster.name.ilike(f"{query}%"))
+            .order_by(MedicineMaster.name)
+            .limit(limit)
+            .all()
+        )
 
-    # 2) If not enough, collect contains matches (but not those already added)
-    if len(matches) < limit:
-        existing_ids = {item.id for item in matches}
-        for idx, m_lower in enumerate(meds_lower):
-            if idx in existing_ids:
-                continue
-            if query in m_lower:
-                matches.append(make_result(idx, confidence=95.0, match_type="contains"))
-                if len(matches) >= limit:
-                    break
+        for row in prefix_query:
+            matches.append(make_result(row, confidence=100.0, match_type="prefix"))
+
+        if len(matches) < limit:
+            existing_ids = {item.id for item in matches}
+            contains_query = session.query(MedicineMaster)
+            if existing_ids:
+                contains_query = contains_query.filter(~MedicineMaster.id.in_(existing_ids))
+            contains_query = (
+                contains_query
+                .filter(MedicineMaster.name.ilike(f"%{query}%"))
+                .order_by(MedicineMaster.name)
+                .limit(limit - len(matches))
+                .all()
+            )
+            for row in contains_query:
+                matches.append(make_result(row, confidence=95.0, match_type="contains"))
 
     source = "memory"
     if len(matches) < min(3, limit) and len(query) >= 3:
         fuzzy_candidates = find_fuzzy_results(query, limit - len(matches), exclude_ids={item.id for item in matches})
-        for idx, score in fuzzy_candidates:
-            matches.append(make_result(idx, confidence=score, match_type="fuzzy"))
         if fuzzy_candidates:
+            with SessionLocal() as session:
+                id_to_row = {row.id: row for row in session.query(MedicineMaster).filter(MedicineMaster.id.in_([item[0] for item in fuzzy_candidates])).all()}
+            for row_id, score in fuzzy_candidates:
+                if row_id in id_to_row:
+                    matches.append(make_result(id_to_row[row_id], confidence=score, match_type="fuzzy"))
             source = "fuzzy"
 
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
