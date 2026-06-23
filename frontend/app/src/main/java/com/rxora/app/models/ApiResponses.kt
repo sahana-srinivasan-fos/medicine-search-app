@@ -14,6 +14,12 @@ data class PresetsResponse(
     val source: String? = null
 )
 
+data class CorrectionResponse(
+    val original: String,
+    val corrected: String,
+    val confidence: Int
+)
+
 data class RecentSearch(
     val query: String
 )

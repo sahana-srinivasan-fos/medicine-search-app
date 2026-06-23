@@ -17,6 +17,11 @@ interface MedicineApiService {
     @GET("/api/medicines/presets")
     suspend fun getPresetMedicines(): Response<PresetsResponse>
 
+    @GET("/api/correct")
+    suspend fun correctMedicine(
+        @Query("query") query: String
+    ): Response<CorrectionResponse>
+
     @Multipart
     @POST("/api/voice-search")
     fun uploadVoice(

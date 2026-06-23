@@ -67,6 +67,15 @@
             app:tint="@color/background" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/correction_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/secondary_accent"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
     <ProgressBar
         android:id="@+id/loading_progress_bar"
         style="?android:attr/progressBarStyleHorizontal"

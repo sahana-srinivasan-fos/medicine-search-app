@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
+import com.rxora.app.models.CorrectionResponse
 import com.rxora.app.models.Medicine
 import com.rxora.app.models.RecentSearch
 import com.rxora.app.ui.MedicineAdapter
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val SPEECH_REQUEST_CODE = 100
         private const val TAG = "MainActivity"
+        private const val CORRECTION_CONFIDENCE_THRESHOLD = 75
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -175,7 +177,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             if (e !is CancellationException) {
                 binding.statusText.visibility = View.VISIBLE
-                binding.statusText.text = "Network connection failed"
+                binding.statusText.text = e.localizedMessage ?: "An unknown error occurred"
             }
         } finally {
             showLoading(false)
@@ -200,10 +202,14 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == SPEECH_REQUEST_CODE && resultCode == RESULT_OK) {
             val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!results.isNullOrEmpty()) {
-                val spokenText = results[0]
-                binding.searchEditText.setText(spokenText)
-                binding.searchEditText.setSelection(spokenText.length)
-                saveRecentSearch(spokenText)
+                val spokenText = results[0]?.trim().orEmpty()
+                if (spokenText.isNotEmpty()) {
+                    binding.searchEditText.setText(spokenText)
+                    binding.searchEditText.setSelection(spokenText.length)
+                    lifecycleScope.launch {
+                        performVoiceSearch(spokenText)
+                    }
+                }
             }
         }
     }
@@ -235,6 +241,54 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLoading(show: Boolean) {
         binding.loadingProgressBar.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun showCorrectionMessage(message: String?) {
+        if (!message.isNullOrEmpty()) {
+            binding.correctionText.visibility = View.VISIBLE
+            binding.correctionText.text = message
+        } else {
+            binding.correctionText.visibility = View.GONE
+            binding.correctionText.text = ""
+        }
+    }
+
+    private suspend fun performVoiceSearch(spokenText: String) {
+        showLoading(true)
+        binding.statusText.visibility = View.VISIBLE
+        binding.statusText.text = "Correcting voice input..."
+        showCorrectionMessage(null)
+
+        try {
+            val response = withContext(Dispatchers.IO) {
+                RetrofitClient.medicineApi.correctMedicine(spokenText)
+            }
+
+            val searchQuery = if (response.isSuccessful && response.body() != null) {
+                val correction = response.body()!!
+                if (correction.confidence > CORRECTION_CONFIDENCE_THRESHOLD && correction.corrected != spokenText) {
+                    binding.searchEditText.setText(correction.corrected)
+                    binding.searchEditText.setSelection(correction.corrected.length)
+                    showCorrectionMessage("Corrected '${correction.original}' → '${correction.corrected}'")
+                    correction.corrected
+                } else {
+                    showCorrectionMessage(null)
+                    spokenText
+                }
+            } else {
+                showCorrectionMessage(null)
+                spokenText
+            }
+
+            performSearch(searchQuery)
+        } catch (e: Exception) {
+            showCorrectionMessage(null)
+            binding.statusText.visibility = View.VISIBLE
+            binding.statusText.text = "Voice correction unavailable"
+            performSearch(spokenText)
+        } finally {
+            showLoading(false)
+        }
     }
 
     override fun onDestroy() {
