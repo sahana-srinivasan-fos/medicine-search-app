@@ -8,6 +8,9 @@ import json
 import time
 import logging
 
+from database import engine
+from models import *
+
 # ==================== LOGGING SETUP ====================
 logging.basicConfig(
     level=logging.INFO,
@@ -71,9 +74,16 @@ class PresetsResponse(BaseModel):
     count: int
     medicines: list[MedicineResponse]
 
+class CorrectionResponse(BaseModel):
+    original: str
+    corrected: str
+    confidence: int
+
 # Initialize application on startup
 @app.on_event("startup")
 async def startup():
+    Base.metadata.create_all(bind=engine)
+
     global MEDICINES
     global MEDICINES_LOWER
 
@@ -240,6 +250,33 @@ async def voice_search(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/correct", response_model=CorrectionResponse)
+async def correct_medicine(query: str = Query(..., min_length=1)):
+    query_value = query.strip()
+    if not query_value:
+        raise HTTPException(status_code=422, detail="Query cannot be empty")
+
+    best_match = process.extractOne(
+        query_value.lower(),
+        MEDICINES_LOWER,
+        scorer=fuzz.partial_ratio,
+        processor=lambda x: x
+    )
+
+    if best_match is None:
+        return CorrectionResponse(
+            original=query_value,
+            corrected=query_value,
+            confidence=0
+        )
+
+    _, score, idx = best_match
+    return CorrectionResponse(
+        original=query_value,
+        corrected=MEDICINES[idx],
+        confidence=int(round(score))
+    )
+
 @app.get("/")
 async def root():
     """API documentation endpoint"""
@@ -256,7 +293,8 @@ async def root():
             "health": "GET /health",
             "search": "GET /api/search?query=aspirin&limit=20",
             "presets": "GET /api/medicines/presets",
-            "voice_search": "POST /api/voice-search"
+            "voice_search": "POST /api/voice-search",
+            "correct": "GET /api/correct?query=aspirin"
         }
     }
 
