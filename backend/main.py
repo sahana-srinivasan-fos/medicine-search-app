@@ -7,9 +7,13 @@ from datetime import datetime
 import json
 import time
 import logging
+import random
+from datetime import timedelta, date
 
 from database import engine, SessionLocal, Base
 from models import *
+from sqlalchemy.orm import joinedload
+from typing import Optional
 
 # ==================== LOGGING SETUP ====================
 logging.basicConfig(
@@ -62,6 +66,8 @@ class MedicineResponse(BaseModel):
     is_preset: bool = False
     confidence: float = 100.0
     match_type: str = "prefix"
+    stock_quantity: int = 0
+    selling_price: float = 0.0
 
 class SearchResponse(BaseModel):
     query: str
@@ -92,6 +98,34 @@ def seed_medicine_master(session, medicines: list[str]) -> int:
     return len(medicines)
 
 
+def seed_inventory(session) -> int:
+    """Seed inventory demo data if inventory table is empty."""
+    existing = session.query(Inventory).count()
+    if existing > 0:
+        logger.info("✓ Inventory already contains %d rows", existing)
+        return existing
+
+    ids = [r[0] for r in session.query(MedicineMaster.id).order_by(MedicineMaster.id).all()]
+    objects = []
+    for mid in ids:
+        qty = random.randint(20, 200)
+        price = round(random.uniform(5, 500), 2)
+        exp = date.today() + timedelta(days=random.randint(90, 365 * 3))
+        obj = Inventory(
+            medicine_id=mid,
+            stock_quantity=qty,
+            tablets_per_strip=10,
+            selling_price=price,
+            expiry_date=exp
+        )
+        objects.append(obj)
+
+    session.bulk_save_objects(objects)
+    session.commit()
+    logger.info("✓ Seeded inventory for %d medicines", len(objects))
+    return len(objects)
+
+
 # Initialize application on startup
 @app.on_event("startup")
 async def startup():
@@ -116,6 +150,11 @@ async def startup():
 
         with SessionLocal() as session:
             seed_medicine_master(session, loaded_medicines)
+            # Seed inventory demo data (one row per medicine) if empty
+            try:
+                seed_inventory(session)
+            except Exception as se:
+                logger.error("Failed to seed inventory: %s", se)
 
         MEDICINES = loaded_medicines
         MEDICINES_LOWER = [m.lower() for m in MEDICINES]
@@ -189,20 +228,24 @@ async def search_medicines(
     matches: list[MedicineResponse] = []
 
     def make_result(row: MedicineMaster, confidence: float = 100.0, match_type: str = "prefix") -> MedicineResponse:
+        inv = getattr(row, "inventory", None)
         return MedicineResponse(
             id=row.id,
             name=row.name,
             description="",
             is_preset=row.name.lower() in PRESET_SET,
             confidence=confidence,
-            match_type=match_type
+            match_type=match_type,
+            stock_quantity=inv.stock_quantity if inv else 0,
+            selling_price=inv.selling_price if inv else 0.0
         )
 
     with SessionLocal() as session:
         prefix_query = (
             session.query(MedicineMaster)
+            .options(joinedload(MedicineMaster.inventory))
             .filter(MedicineMaster.name.ilike(f"{query}%"))
-            .order_by(MedicineMaster.name)
+            .order_by(MedicineMaster.id)
             .limit(limit)
             .all()
         )
@@ -212,13 +255,13 @@ async def search_medicines(
 
         if len(matches) < limit:
             existing_ids = {item.id for item in matches}
-            contains_query = session.query(MedicineMaster)
+            contains_query = session.query(MedicineMaster).options(joinedload(MedicineMaster.inventory))
             if existing_ids:
                 contains_query = contains_query.filter(~MedicineMaster.id.in_(existing_ids))
             contains_query = (
                 contains_query
                 .filter(MedicineMaster.name.ilike(f"%{query}%"))
-                .order_by(MedicineMaster.name)
+                .order_by(MedicineMaster.id)
                 .limit(limit - len(matches))
                 .all()
             )
@@ -230,7 +273,7 @@ async def search_medicines(
         fuzzy_candidates = find_fuzzy_results(query, limit - len(matches), exclude_ids={item.id for item in matches})
         if fuzzy_candidates:
             with SessionLocal() as session:
-                id_to_row = {row.id: row for row in session.query(MedicineMaster).filter(MedicineMaster.id.in_([item[0] for item in fuzzy_candidates])).all()}
+                id_to_row = {row.id: row for row in session.query(MedicineMaster).options(joinedload(MedicineMaster.inventory)).filter(MedicineMaster.id.in_([item[0] for item in fuzzy_candidates])).all()}
             for row_id, score in fuzzy_candidates:
                 if row_id in id_to_row:
                     matches.append(make_result(id_to_row[row_id], confidence=score, match_type="fuzzy"))
@@ -256,6 +299,47 @@ def make_preset_result(index: int) -> MedicineResponse:
         confidence=100.0,
         match_type="preset"
     )
+
+
+class MedicineDetailResponse(BaseModel):
+    id: int
+    name: str
+    manufacturer: str = ""
+    category: str = ""
+    stock_quantity: int = 0
+    tablets_per_strip: int = 10
+    selling_price: float = 0.0
+    expiry_date: Optional[str] = None
+
+
+@app.get("/api/medicine/{medicine_id}", response_model=MedicineDetailResponse)
+async def get_medicine_detail(medicine_id: int):
+    with SessionLocal() as session:
+        row = (
+            session.query(MedicineMaster)
+            .options(joinedload(MedicineMaster.inventory))
+            .filter(MedicineMaster.id == medicine_id)
+            .first()
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Medicine not found")
+
+        inv = row.inventory
+        expiry = None
+        if inv and inv.expiry_date:
+            expiry = inv.expiry_date.isoformat()
+
+        return MedicineDetailResponse(
+            id=row.id,
+            name=row.name,
+            manufacturer=row.manufacturer or "",
+            category=row.category or "",
+            stock_quantity=inv.stock_quantity if inv else 0,
+            tablets_per_strip=inv.tablets_per_strip if inv else 10,
+            selling_price=inv.selling_price if inv else 0.0,
+            expiry_date=expiry
+        )
 
 @app.get("/api/medicines/presets", response_model=PresetsResponse)
 async def get_preset_medicines():

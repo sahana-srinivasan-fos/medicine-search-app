@@ -8,6 +8,10 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.rxora.app.databinding.ItemMedicineBinding
 import com.rxora.app.models.Medicine
+import android.content.Intent
+import com.rxora.app.MedicineDetailActivity
+import com.rxora.app.models.CartItem
+import com.rxora.app.utils.CartManager
 
 class MedicineAdapter : ListAdapter<Medicine, MedicineAdapter.MedicineViewHolder>(MedicineDiffCallback()) {
 
@@ -43,6 +47,25 @@ class MedicineAdapter : ListAdapter<Medicine, MedicineAdapter.MedicineViewHolder
             } else {
                 binding.medicineDescription.text = medicine.description
                 binding.medicineDescription.visibility = View.VISIBLE
+            }
+            binding.medicineStock.text = "Stock: ${medicine.stock_quantity}"
+            binding.medicinePrice.text = "₹${String.format("%.2f", medicine.selling_price)}"
+
+            binding.root.setOnClickListener {
+                val ctx = binding.root.context
+                val intent = Intent(ctx, MedicineDetailActivity::class.java)
+                intent.putExtra("medicine_id", medicine.id)
+                ctx.startActivity(intent)
+            }
+
+            binding.addToCartButton.setOnClickListener {
+                val item = CartItem(
+                    medicineId = medicine.id,
+                    medicineName = medicine.name,
+                    quantity = 1,
+                    price = medicine.selling_price
+                )
+                CartManager.addItem(item)
             }
         }
     }

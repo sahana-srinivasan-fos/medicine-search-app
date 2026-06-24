@@ -9,6 +9,8 @@ from sqlalchemy import (
 )
 
 from database import Base
+from sqlalchemy.orm import relationship
+from datetime import date
 
 class MedicineMaster(Base):
     __tablename__ = "medicine_master"
@@ -17,6 +19,8 @@ class MedicineMaster(Base):
     name = Column(String, index=True)
     manufacturer = Column(String)
     category = Column(String)
+    # One-to-one (logical) relationship to Inventory
+    inventory = relationship("Inventory", back_populates="medicine", uselist=False)
 
 class Inventory(Base):
     __tablename__ = "inventory"
@@ -27,16 +31,19 @@ class Inventory(Base):
         Integer,
         ForeignKey("medicine_master.id")
     )
+    # optional batch identifier for real inventory implementations
+    batch_number = Column(String, nullable=True)
 
-    batch_number = Column(String)
+    stock_quantity = Column(Integer, default=0)
 
-    stock_quantity = Column(Integer)
+    tablets_per_strip = Column(Integer, default=10)
 
-    tablets_per_strip = Column(Integer)
+    selling_price = Column(Float, default=0.0)
 
-    selling_price = Column(Float)
+    expiry_date = Column(Date, nullable=True)
 
-    expiry_date = Column(Date)
+    # relationship back to medicine
+    medicine = relationship("MedicineMaster", back_populates="inventory")
 
 class Cart(Base):
     __tablename__ = "cart"

@@ -23,3 +23,21 @@ data class CorrectionResponse(
 data class RecentSearch(
     val query: String
 )
+
+data class MedicineDetail(
+    val id: Int,
+    val name: String,
+    val manufacturer: String = "",
+    val category: String = "",
+    val stock_quantity: Int = 0,
+    val tablets_per_strip: Int = 10,
+    val selling_price: Double = 0.0,
+    val expiry_date: String? = null
+)
+
+data class CartItem(
+    val medicineId: Int,
+    val medicineName: String,
+    var quantity: Int,
+    val price: Double
+)
