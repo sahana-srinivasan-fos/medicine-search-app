@@ -17,6 +17,8 @@ class MedicineDetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMedicineDetailBinding
 
+    private var medicineDetail: MedicineDetail? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMedicineDetailBinding.inflate(layoutInflater)
@@ -29,23 +31,36 @@ class MedicineDetailActivity : AppCompatActivity() {
         }
 
         binding.loadingProgressBar.visibility = View.VISIBLE
+
         lifecycleScope.launch {
             loadDetail(medicineId)
         }
 
         binding.addToCart.setOnClickListener {
-            val detail = binding.tag as? MedicineDetail ?: return@setOnClickListener
-            val item = CartItem(medicineId = detail.id, medicineName = detail.name, quantity = 1, price = detail.selling_price)
+            val detail = medicineDetail ?: return@setOnClickListener
+
+            val item = CartItem(
+                medicineId = detail.id,
+                medicineName = detail.name,
+                quantity = 1,
+                price = detail.selling_price
+            )
+
             CartManager.addItem(item)
         }
     }
 
     private suspend fun loadDetail(id: Int) {
         try {
-            val response = withContext(Dispatchers.IO) { RetrofitClient.medicineApi.getMedicineDetail(id) }
+            val response = withContext(Dispatchers.IO) {
+                RetrofitClient.medicineApi.getMedicineDetail(id)
+            }
+
             if (response.isSuccessful && response.body() != null) {
                 val d = response.body()!!
-                binding.tag = d
+
+                medicineDetail = d
+
                 binding.medName.text = d.name
                 binding.medManufacturer.text = d.manufacturer
                 binding.medCategory.text = d.category
