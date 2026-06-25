@@ -34,8 +34,30 @@ class CheckoutActivity : AppCompatActivity() {
         }
 
         binding.completeSaleButton.setOnClickListener {
-            performCheckout()
+            confirmCheckout()
         }
+    }
+
+    private fun confirmCheckout() {
+        val total = CartManager.total()
+        if (total <= 0.0) {
+            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Complete Sale?")
+            .setMessage("Total: ₹${String.format("%.2f", total)}")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Confirm") { _, _ ->
+                performCheckout()
+            }
+            .show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshTotals()
     }
 
     private fun refreshTotals() {

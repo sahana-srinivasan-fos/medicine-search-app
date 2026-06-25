@@ -70,11 +70,7 @@ class CartAdapter(
                         if (newQty <= 0) {
                             CartManager.removeItem(item.medicineId)
                         } else {
-                            // set exact quantity
-                            val existing = CartManager.getItems().find { it.medicineId == item.medicineId }
-                            if (existing != null) {
-                                existing.quantity = newQty
-                            }
+                            CartManager.setQuantity(item.medicineId, newQty)
                         }
                         onQuantityChanged()
                     }

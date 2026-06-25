@@ -23,10 +23,20 @@ object CartManager {
     }
 
     fun decreaseQuantity(medicineId: Int) {
-        items.find { it.medicineId == medicineId }?.let { if (it.quantity > 1) it.quantity -= 1 else removeItem(medicineId) }
+        items.find { it.medicineId == medicineId }?.let {
+            if (it.quantity > 1) it.quantity -= 1 else removeItem(medicineId)
+        }
     }
 
-    fun getItems(): List<CartItem> = items.toList()
+    fun setQuantity(medicineId: Int, quantity: Int) {
+        if (quantity <= 0) {
+            removeItem(medicineId)
+        } else {
+            items.find { it.medicineId == medicineId }?.quantity = quantity
+        }
+    }
+
+    fun getItems(): List<CartItem> = items.map { it.copy() }
 
     fun clear() {
         items.clear()

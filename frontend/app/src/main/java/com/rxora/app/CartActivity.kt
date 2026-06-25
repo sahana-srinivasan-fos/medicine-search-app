@@ -26,12 +26,15 @@ class CartActivity : AppCompatActivity() {
             adapter = cartAdapter
         }
 
-        refresh()
-
         binding.checkoutButton.setOnClickListener {
             val intent = android.content.Intent(this, CheckoutActivity::class.java)
             startActivity(intent)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refresh()
     }
 
     private fun refresh() {
@@ -41,5 +44,6 @@ class CartActivity : AppCompatActivity() {
         binding.cartEmptyState.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         binding.cartItemsRecyclerView.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
         binding.cartTotalText.text = "Total: ₹${String.format("%.2f", CartManager.total())}"
+        binding.checkoutButton.isEnabled = items.isNotEmpty()
     }
 }

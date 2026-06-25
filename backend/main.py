@@ -438,7 +438,7 @@ def checkout_order(payload: CheckoutRequest):
 
                 if inventory.stock_quantity < item.quantity:
                     raise HTTPException(
-                        status_code=409,
+                        status_code=400,
                         detail=f"Insufficient stock for medicine {inventory.medicine.name}: requested {item.quantity}, available {inventory.stock_quantity}"
                     )
 
