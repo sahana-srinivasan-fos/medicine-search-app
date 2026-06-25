@@ -8,19 +8,54 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <!-- Header / Branding -->
-    <TextView
-        android:id="@+id/app_title"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:text="RXORA SEARCH"
-        android:textAppearance="?attr/textAppearanceTitleLarge"
-        android:textColor="@color/primary_accent"
-        android:textStyle="bold"
-        android:letterSpacing="0.1"/>
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="16dp">
 
-    <!-- Search Section -->
+        <TextView
+            android:id="@+id/app_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="RXORA SEARCH"
+            android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textColor="@color/primary_accent"
+            android:textStyle="bold"
+            android:letterSpacing="0.1" />
+
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <ImageButton
+                android:id="@+id/cart_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_cart"
+                app:tint="@color/text_primary"
+                android:contentDescription="Cart" />
+
+            <TextView
+                android:id="@+id/cart_badge"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="end|top"
+                android:layout_marginEnd="-4dp"
+                android:layout_marginTop="-4dp"
+                android:background="@drawable/badge_count_bg"
+                android:gravity="center"
+                android:text="0"
+                android:textColor="@color/background"
+                android:textSize="10sp"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -86,7 +121,6 @@
         android:indeterminateTint="@color/secondary_accent"
         android:visibility="gone" />
 
-    <!-- State Message (e.g. "Enter query to begin") -->
     <TextView
         android:id="@+id/status_text"
         android:layout_width="match_parent"
@@ -96,7 +130,6 @@
         android:text="Ready for query"
         android:textColor="@color/text_secondary" />
 
-    <!-- Recent Searches Section -->
     <LinearLayout
         android:id="@+id/recent_section"
         android:layout_width="match_parent"
@@ -112,18 +145,26 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:visibility="gone"/>
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/recent_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="No recent searches"
+            android:textColor="@color/text_secondary"
+            android:visibility="gone"
+            android:gravity="center" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recent_searches_recycler_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:clipToPadding="false"
-            android:orientation="horizontal" />
+            android:layout_marginTop="8dp"
+            android:clipToPadding="false" />
     </LinearLayout>
 
-    <!-- Preset Medicines Section -->
     <LinearLayout
         android:id="@+id/preset_section"
         android:layout_width="match_parent"
@@ -141,16 +182,22 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <ProgressBar
+            android:id="@+id/preset_loading"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginTop="12dp"
+            android:indeterminateTint="@color/secondary_accent"
+            android:visibility="gone" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/preset_recycler_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:clipToPadding="false"
-            android:orientation="horizontal" />
+            android:layout_marginTop="8dp"
+            android:clipToPadding="false" />
     </LinearLayout>
 
-    <!-- Results Section (Scrollable) -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/medicine_recycler_view"
         android:layout_width="match_parent"
@@ -158,7 +205,6 @@
         android:layout_weight="1"
         android:layout_marginTop="16dp" />
 
-    <!-- Performance Info (Footer) -->
     <TextView
         android:id="@+id/performance_text"
         android:layout_width="match_parent"

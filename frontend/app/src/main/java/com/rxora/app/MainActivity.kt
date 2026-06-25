@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
@@ -20,6 +21,7 @@ import com.rxora.app.models.Medicine
 import com.rxora.app.models.RecentSearch
 import com.rxora.app.ui.MedicineAdapter
 import com.rxora.app.ui.RecentSearchAdapter
+import com.rxora.app.utils.CartManager
 import com.rxora.app.utils.RecentSearchStore
 import kotlinx.coroutines.*
 import java.util.Locale
@@ -27,7 +29,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val medicineAdapter = MedicineAdapter()
+    private lateinit var medicineAdapter: MedicineAdapter
     private var recentSearchAdapter: RecentSearchAdapter? = null
     private var presetSearchAdapter: RecentSearchAdapter? = null
 
@@ -53,6 +55,11 @@ class MainActivity : AppCompatActivity() {
         setupButtons()
 
         loadInitialData()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateCartBadge()
     }
 
     private fun setupRealTimeSearch() {
@@ -101,11 +108,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadInitialData() {
+        updateCartBadge()
+
         val searches = RecentSearchStore.loadRecentSearches(this)
+        binding.recentTitle.visibility = View.VISIBLE
         if (searches.isNotEmpty()) {
-            binding.recentTitle.visibility = View.VISIBLE
+            binding.recentEmptyState.visibility = View.GONE
             recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
+        } else {
+            binding.recentEmptyState.visibility = View.VISIBLE
+            recentSearchAdapter?.setData(emptyList())
         }
+
+        binding.presetLoading.visibility = View.VISIBLE
+        binding.presetSection.visibility = View.VISIBLE
 
         lifecycleScope.launch {
             loadPresetMedicines()
@@ -115,27 +131,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerViews() {
+        medicineAdapter = MedicineAdapter(onCartAdded = {
+            updateCartBadge()
+        })
+
         binding.medicineRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = medicineAdapter
         }
 
         recentSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
-            binding.searchEditText.setText(query)
-            binding.searchEditText.setSelection(query.length)
+            val trimmed = query.trim()
+            binding.searchEditText.setText(trimmed)
+            binding.searchEditText.setSelection(trimmed.length)
+            lifecycleScope.launch {
+                performSearch(trimmed)
+            }
         })
         binding.recentSearchesRecyclerView.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+            layoutManager = GridLayoutManager(this@MainActivity, 2)
             adapter = recentSearchAdapter
+            setHasFixedSize(true)
         }
 
         presetSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
-            binding.searchEditText.setText(query)
-            binding.searchEditText.setSelection(query.length)
+            val trimmed = query.trim()
+            Log.d(TAG, "PRESET_CLICKED: $trimmed")
+            binding.searchEditText.setText(trimmed)
+            binding.searchEditText.setSelection(trimmed.length)
+            lifecycleScope.launch {
+                performSearch(trimmed)
+            }
         })
         binding.presetRecyclerView.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
+            layoutManager = GridLayoutManager(this@MainActivity, 2)
             adapter = presetSearchAdapter
+            setHasFixedSize(true)
         }
     }
 
@@ -143,6 +174,21 @@ class MainActivity : AppCompatActivity() {
         binding.voiceButton.setOnClickListener {
             startVoiceSearch()
         }
+
+        binding.cartButton.setOnClickListener {
+            startActivity(Intent(this, CartActivity::class.java))
+        }
+    }
+
+    private fun updateCartBadge() {
+        val count = CartManager.getItems().sumOf { it.quantity }
+        if (count > 0) {
+            binding.cartBadge.visibility = View.VISIBLE
+            binding.cartBadge.text = count.toString()
+        } else {
+            binding.cartBadge.visibility = View.GONE
+        }
+        Log.d(TAG, "CART_TOTAL_UPDATED: $count")
     }
 
     private suspend fun performSearch(query: String) {
@@ -169,6 +215,7 @@ class MainActivity : AppCompatActivity() {
 
                 binding.performanceText.text = "Source: ${body.source} | Latency: ${body.timing_ms}ms"
 
+                Log.d(TAG, "SEARCH_EXECUTED: $query")
                 saveRecentSearch(query)
             } else {
                 binding.statusText.visibility = View.VISIBLE
@@ -216,8 +263,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveRecentSearch(query: String) {
         val searches = RecentSearchStore.addRecentSearch(this, query)
-        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
+        binding.recentTitle.visibility = View.VISIBLE
+        binding.recentEmptyState.visibility = if (searches.isEmpty()) View.VISIBLE else View.GONE
         recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
+        Log.d(TAG, "RECENT_SEARCH_SAVED: $query")
     }
 
     private suspend fun loadPresetMedicines() {
@@ -226,16 +275,21 @@ class MainActivity : AppCompatActivity() {
                 RetrofitClient.medicineApi.getPresetMedicines()
             }
             if (response.isSuccessful && response.body() != null) {
-                val items = response.body()!!.medicines.map { RecentSearch(query = it.name) }
+                val items = response.body()!!.medicines.map { RecentSearch(query = it.name, isPreset = true) }
                 if (items.isNotEmpty()) {
                     presetSearchAdapter?.setData(items)
-                    if (binding.searchEditText.text.isNullOrEmpty()) {
-                        binding.presetSection.visibility = View.VISIBLE
-                    }
+                    binding.presetSection.visibility = View.VISIBLE
+                } else {
+                    binding.presetSection.visibility = View.GONE
                 }
+            } else {
+                binding.presetSection.visibility = View.GONE
             }
         } catch (e: Exception) {
             Log.w(TAG, "Preset load failed", e)
+            binding.presetSection.visibility = View.GONE
+        } finally {
+            binding.presetLoading.visibility = View.GONE
         }
     }
 

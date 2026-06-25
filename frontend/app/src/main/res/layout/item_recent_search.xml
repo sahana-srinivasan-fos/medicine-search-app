@@ -1,18 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_marginEnd="8dp"
-    android:background="@color/surface"
-    android:padding="1dp">
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="96dp"
+    android:layout_margin="4dp"
+    app:cardBackgroundColor="@color/card_bg"
+    app:cardCornerRadius="0dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="1dp"
+    app:strokeColor="@color/divider">
 
-    <TextView
-        android:id="@+id/recent_search_text"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@color/card_bg"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="6dp"
-        android:textColor="@color/text_secondary"
-        android:textSize="13sp" />
-</FrameLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/recent_search_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/preset_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@color/primary_accent"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="2dp"
+            android:text="PRESET"
+            android:textAllCaps="true"
+            android:textColor="@color/background"
+            android:textSize="10sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

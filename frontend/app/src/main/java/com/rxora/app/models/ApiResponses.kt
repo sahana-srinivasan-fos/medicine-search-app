@@ -21,7 +21,8 @@ data class CorrectionResponse(
 )
 
 data class RecentSearch(
-    val query: String
+    val query: String,
+    val isPreset: Boolean = false
 )
 
 data class MedicineDetail(

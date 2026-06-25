@@ -12,6 +12,9 @@ import com.rxora.app.utils.CartManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Log
+import android.widget.Toast
+
 
 class MedicineDetailActivity : AppCompatActivity() {
 
@@ -47,6 +50,8 @@ class MedicineDetailActivity : AppCompatActivity() {
             )
 
             CartManager.addItem(item)
+            Toast.makeText(this, "Added to cart", Toast.LENGTH_SHORT).show()
+            Log.d("MedicineDetailActivity", "MEDICINE_ADDED_TO_CART: ${detail.name}")
         }
     }
 

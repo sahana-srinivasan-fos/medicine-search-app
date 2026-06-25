@@ -1,6 +1,7 @@
 package com.rxora.app.ui
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.rxora.app.databinding.ItemRecentSearchBinding
@@ -34,9 +35,10 @@ class RecentSearchAdapter(
 
     inner class RecentSearchViewHolder(private val binding: ItemRecentSearchBinding) :
         RecyclerView.ViewHolder(binding.root) {
-        
+
         fun bind(search: RecentSearch) {
             binding.recentSearchText.text = search.query.uppercase()
+            binding.presetBadge.visibility = if (search.isPreset) View.VISIBLE else View.GONE
             binding.root.setOnClickListener {
                 onSearchClick(search.query)
             }

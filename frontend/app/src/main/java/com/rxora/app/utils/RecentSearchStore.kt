@@ -6,7 +6,7 @@ import org.json.JSONArray
 object RecentSearchStore {
     private const val PREFS_NAME = "recent_searches"
     private const val KEY_SEARCHES = "recent_searches"
-    private const val MAX_RECENT_SEARCHES = 10
+    private const val MAX_RECENT_SEARCHES = 5
 
     fun loadRecentSearches(context: Context): List<String> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

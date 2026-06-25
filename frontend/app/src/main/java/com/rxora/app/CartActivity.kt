@@ -1,28 +1,40 @@
 package com.rxora.app
 
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.rxora.app.databinding.ActivityCartBinding
+import com.rxora.app.ui.CartAdapter
 import com.rxora.app.utils.CartManager
 
 class CartActivity : AppCompatActivity() {
     private lateinit var binding: ActivityCartBinding
+    private lateinit var cartAdapter: CartAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityCartBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        cartAdapter = CartAdapter {
+            refresh()
+        }
+
+        binding.cartItemsRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@CartActivity)
+            adapter = cartAdapter
+        }
+
         refresh()
     }
 
     private fun refresh() {
         val items = CartManager.getItems()
-        val sb = StringBuilder()
-        for (i in items) {
-            sb.append("${i.medicineName} x${i.quantity} - ₹${String.format("%.2f", i.price)}\n")
-        }
-        sb.append("\nTotal: ₹${String.format("%.2f", CartManager.total())}")
-        binding.cartContents.text = sb.toString()
+        cartAdapter.setData(items)
+
+        binding.cartEmptyState.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+        binding.cartItemsRecyclerView.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
+        binding.cartTotalText.text = "Total: ₹${String.format("%.2f", CartManager.total())}"
     }
 }
