@@ -54,7 +54,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="4dp"
             android:gravity="center_vertical">
 
             <TextView
@@ -78,15 +78,17 @@
         <Button
             android:id="@+id/add_to_cart_button"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="36dp"
+            android:layout_marginTop="6dp"
             android:layout_gravity="end"
             android:background="@drawable/box_button_bg"
             android:text="ADD TO CART"
             android:textAllCaps="false"
             android:textColor="@color/background"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="8dp" />
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="6dp"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-medium" />
 
     </LinearLayout>
 
