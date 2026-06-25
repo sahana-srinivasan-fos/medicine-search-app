@@ -42,3 +42,33 @@ data class CartItem(
     var quantity: Int,
     val price: Double
 )
+
+data class CheckoutItem(
+    val medicine_id: Int,
+    val quantity: Int
+)
+
+data class CheckoutRequest(
+    val items: List<CheckoutItem>,
+    val discount: Double = 0.0,
+    val gst_percent: Double = 0.0
+)
+
+data class OrderItemResponse(
+    val medicine_id: Int,
+    val medicine_name: String,
+    val quantity: Int,
+    val unit_price: Double,
+    val line_total: Double
+)
+
+data class OrderResponse(
+    val id: Int,
+    val subtotal: Double,
+    val discount: Double,
+    val gst_percent: Double,
+    val gst_amount: Double,
+    val total_amount: Double,
+    val created_at: String,
+    val items: List<OrderItemResponse>
+)

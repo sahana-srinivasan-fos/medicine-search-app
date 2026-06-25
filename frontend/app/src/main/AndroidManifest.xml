@@ -28,6 +28,8 @@
         </activity>
         <activity android:name=".MedicineDetailActivity" android:exported="false" />
         <activity android:name=".CartActivity" android:exported="false" />
+        <activity android:name=".CheckoutActivity" android:exported="false" />
+        <activity android:name=".InvoiceActivity" android:exported="false" />
     </application>
 
 </manifest>

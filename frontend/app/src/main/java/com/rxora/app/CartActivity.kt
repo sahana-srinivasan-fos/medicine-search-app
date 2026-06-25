@@ -27,6 +27,11 @@ class CartActivity : AppCompatActivity() {
         }
 
         refresh()
+
+        binding.checkoutButton.setOnClickListener {
+            val intent = android.content.Intent(this, CheckoutActivity::class.java)
+            startActivity(intent)
+        }
     }
 
     private fun refresh() {

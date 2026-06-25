@@ -30,4 +30,13 @@ interface MedicineApiService {
     fun uploadVoice(
         @Part file: MultipartBody.Part
     ): Call<Map<String, String>>
+
+    @POST("/api/orders/checkout")
+    suspend fun checkoutOrder(@Body request: com.rxora.app.models.CheckoutRequest): Response<com.rxora.app.models.OrderResponse>
+
+    @GET("/api/orders")
+    suspend fun listOrders(): Response<List<com.rxora.app.models.OrderResponse>>
+
+    @GET("/api/orders/{order_id}")
+    suspend fun getOrder(@Path("order_id") orderId: Int): Response<com.rxora.app.models.OrderResponse>
 }

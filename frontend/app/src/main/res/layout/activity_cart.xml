@@ -42,4 +42,13 @@
         android:textSize="16sp"
         android:textStyle="bold" />
 
+    <Button
+        android:id="@+id/checkout_button"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="12dp"
+        android:text="CHECKOUT"
+        android:backgroundTint="@color/primary_accent"
+        android:textColor="@color/background" />
+
 </LinearLayout>

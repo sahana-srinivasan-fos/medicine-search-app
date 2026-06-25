@@ -1,7 +1,10 @@
 package com.rxora.app.ui
 
+import android.app.AlertDialog
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.widget.EditText
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -49,6 +52,34 @@ class CartAdapter(
             binding.removeItemButton.setOnClickListener {
                 CartManager.removeItem(item.medicineId)
                 onQuantityChanged()
+            }
+
+            binding.cartItemQuantity.setOnClickListener {
+                // allow typing a number directly
+                val ctx = binding.root.context
+                val input = EditText(ctx)
+                input.inputType = InputType.TYPE_CLASS_NUMBER
+                input.setText(item.quantity.toString())
+
+                AlertDialog.Builder(ctx)
+                    .setTitle("Set quantity")
+                    .setView(input)
+                    .setPositiveButton("OK") { _, _ ->
+                        val text = input.text?.toString()?.trim().orEmpty()
+                        val newQty = text.toIntOrNull() ?: item.quantity
+                        if (newQty <= 0) {
+                            CartManager.removeItem(item.medicineId)
+                        } else {
+                            // set exact quantity
+                            val existing = CartManager.getItems().find { it.medicineId == item.medicineId }
+                            if (existing != null) {
+                                existing.quantity = newQty
+                            }
+                        }
+                        onQuantityChanged()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
         }
     }
