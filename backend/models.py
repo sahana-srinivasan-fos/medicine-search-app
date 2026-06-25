@@ -75,10 +75,14 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, index=True)
-
     total_amount = Column(Float)
-
+    discount = Column(Float, default=0.0)
+    gst_percent = Column(Float, default=0.0)
+    gst_amount = Column(Float, default=0.0)
+    subtotal = Column(Float, default=0.0)
     created_at = Column(DateTime)
+
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -96,5 +100,7 @@ class OrderItem(Base):
     )
 
     quantity = Column(Integer)
-
     price = Column(Float)
+
+    order = relationship("Order", back_populates="items")
+    medicine = relationship("MedicineMaster")

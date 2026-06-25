@@ -2,8 +2,8 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="96dp"
-    android:layout_margin="4dp"
+    android:layout_height="48dp"
+    android:layout_margin="3dp"
     app:cardBackgroundColor="@color/card_bg"
     app:cardCornerRadius="0dp"
     app:cardElevation="0dp"
@@ -14,7 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="8dp">
 
         <TextView
             android:id="@+id/recent_search_text"

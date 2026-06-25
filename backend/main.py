@@ -13,7 +13,7 @@ from datetime import timedelta, date
 from database import engine, SessionLocal, Base
 from models import *
 from sqlalchemy.orm import joinedload
-from typing import Optional
+from typing import List, Optional
 
 # ==================== LOGGING SETUP ====================
 logging.basicConfig(
@@ -84,6 +84,32 @@ class CorrectionResponse(BaseModel):
     original: str
     corrected: str
     confidence: int
+
+class CheckoutItem(BaseModel):
+    medicine_id: int
+    quantity: int
+
+class CheckoutRequest(BaseModel):
+    items: List[CheckoutItem]
+    discount: float = 0.0
+    gst_percent: float = 0.0
+
+class OrderItemResponse(BaseModel):
+    medicine_id: int
+    medicine_name: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+class OrderResponse(BaseModel):
+    id: int
+    subtotal: float
+    discount: float
+    gst_percent: float
+    gst_amount: float
+    total_amount: float
+    created_at: str
+    items: List[OrderItemResponse]
 
 def seed_medicine_master(session, medicines: list[str]) -> int:
     existing_count = session.query(MedicineMaster).count()
@@ -390,6 +416,151 @@ async def correct_medicine(query: str = Query(..., min_length=1)):
         corrected=MEDICINES[idx],
         confidence=int(round(score))
     )
+
+@app.post("/api/orders/checkout", response_model=OrderResponse)
+def checkout_order(payload: CheckoutRequest):
+    if not payload.items:
+        raise HTTPException(status_code=422, detail="Cart cannot be empty")
+
+    with SessionLocal() as session:
+        try:
+            order_items = []
+            subtotal = 0.0
+
+            for item in payload.items:
+                if item.quantity <= 0:
+                    raise HTTPException(status_code=422, detail="Quantity must be greater than zero")
+
+                inventory = session.query(Inventory).filter(Inventory.medicine_id == item.medicine_id).first()
+
+                if not inventory:
+                    raise HTTPException(status_code=404, detail=f"Medicine {item.medicine_id} not found")
+
+                if inventory.stock_quantity < item.quantity:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Insufficient stock for medicine {inventory.medicine.name}: requested {item.quantity}, available {inventory.stock_quantity}"
+                    )
+
+                line_total = round(inventory.selling_price * item.quantity, 2)
+                subtotal += line_total
+                order_items.append((inventory, item.quantity, line_total))
+
+            discount = round(max(0.0, payload.discount), 2)
+            gst_percent = round(max(0.0, payload.gst_percent), 2)
+            gst_amount = round(((subtotal - discount) * gst_percent) / 100.0, 2)
+            total_amount = round(subtotal - discount + gst_amount, 2)
+
+            order = Order(
+                subtotal=subtotal,
+                discount=discount,
+                gst_percent=gst_percent,
+                gst_amount=gst_amount,
+                total_amount=total_amount,
+                created_at=datetime.utcnow()
+            )
+            session.add(order)
+            session.flush()
+
+            response_items: List[OrderItemResponse] = []
+            for inventory, quantity, line_total in order_items:
+                inventory.stock_quantity -= quantity
+                session.add(inventory)
+
+                order_item = OrderItem(
+                    order_id=order.id,
+                    medicine_id=inventory.medicine_id,
+                    quantity=quantity,
+                    price=inventory.selling_price
+                )
+                session.add(order_item)
+                response_items.append(OrderItemResponse(
+                    medicine_id=inventory.medicine_id,
+                    medicine_name=inventory.medicine.name,
+                    quantity=quantity,
+                    unit_price=inventory.selling_price,
+                    line_total=line_total
+                ))
+
+            session.commit()
+
+            return OrderResponse(
+                id=order.id,
+                subtotal=order.subtotal,
+                discount=order.discount,
+                gst_percent=order.gst_percent,
+                gst_amount=order.gst_amount,
+                total_amount=order.total_amount,
+                created_at=order.created_at.isoformat() + "Z",
+                items=response_items
+            )
+        except HTTPException:
+            session.rollback()
+            raise
+        except Exception as exc:
+            session.rollback()
+            logger.exception("Checkout failed")
+            raise HTTPException(status_code=500, detail="Checkout failed")
+
+@app.get("/api/orders", response_model=List[OrderResponse])
+def list_orders():
+    with SessionLocal() as session:
+        orders = (
+            session.query(Order)
+                .order_by(Order.created_at.desc())
+                .all()
+        )
+
+        response = []
+        for order in orders:
+            items = []
+            for item in order.items:
+                items.append(OrderItemResponse(
+                    medicine_id=item.medicine_id,
+                    medicine_name=item.medicine.name if item.medicine else "Unknown",
+                    quantity=item.quantity,
+                    unit_price=item.price,
+                    line_total=round(item.price * item.quantity, 2)
+                ))
+            response.append(OrderResponse(
+                id=order.id,
+                subtotal=order.subtotal,
+                discount=order.discount,
+                gst_percent=order.gst_percent,
+                gst_amount=order.gst_amount,
+                total_amount=order.total_amount,
+                created_at=order.created_at.isoformat() + "Z",
+                items=items
+            ))
+        return response
+
+@app.get("/api/orders/{order_id}", response_model=OrderResponse)
+def get_order(order_id: int):
+    with SessionLocal() as session:
+        order = session.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        items = []
+        for item in order.items:
+            items.append(OrderItemResponse(
+                medicine_id=item.medicine_id,
+                medicine_name=item.medicine.name if item.medicine else "Unknown",
+                quantity=item.quantity,
+                unit_price=item.price,
+                line_total=round(item.price * item.quantity, 2)
+            ))
+
+        return OrderResponse(
+            id=order.id,
+            subtotal=order.subtotal,
+            discount=order.discount,
+            gst_percent=order.gst_percent,
+            gst_amount=order.gst_amount,
+            total_amount=order.total_amount,
+            created_at=order.created_at.isoformat() + "Z",
+            items=items
+        )
 
 @app.get("/")
 async def root():

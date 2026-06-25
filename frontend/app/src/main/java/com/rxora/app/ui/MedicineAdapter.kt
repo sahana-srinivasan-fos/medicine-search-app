@@ -19,6 +19,16 @@ class MedicineAdapter(
     private val onCartAdded: () -> Unit = {}
 ) : ListAdapter<Medicine, MedicineAdapter.MedicineViewHolder>(MedicineDiffCallback()) {
 
+    private val recentlyAddedIds = mutableSetOf<Int>()
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long {
+        return getItem(position).id.toLong()
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MedicineViewHolder {
         val binding = ItemMedicineBinding.inflate(
             LayoutInflater.from(parent.context),
@@ -54,6 +64,7 @@ class MedicineAdapter(
             }
             binding.medicineStock.text = "Stock: ${medicine.stock_quantity}"
             binding.medicinePrice.text = "₹${String.format("%.2f", medicine.selling_price)}"
+            binding.addToCartButton.text = if (recentlyAddedIds.contains(medicine.id)) "✓ ADDED" else "ADD TO CART"
 
             binding.root.setOnClickListener {
                 val ctx = binding.root.context
@@ -72,7 +83,16 @@ class MedicineAdapter(
                 CartManager.addItem(item)
                 Toast.makeText(binding.root.context, "Added to cart", Toast.LENGTH_SHORT).show()
                 Log.d("MedicineAdapter", "MEDICINE_ADDED_TO_CART: ${medicine.name}")
+                recentlyAddedIds.add(medicine.id)
+                binding.addToCartButton.text = "✓ ADDED"
                 onCartAdded()
+                binding.root.postDelayed({
+                    recentlyAddedIds.remove(medicine.id)
+                    val position = bindingAdapterPosition
+                    if (position != RecyclerView.NO_POSITION) {
+                        notifyItemChanged(position)
+                    }
+                }, 1000)
             }
         }
     }

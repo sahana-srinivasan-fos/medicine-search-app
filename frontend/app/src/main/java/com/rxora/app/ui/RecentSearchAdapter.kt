@@ -3,19 +3,22 @@ package com.rxora.app.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.rxora.app.databinding.ItemRecentSearchBinding
 import com.rxora.app.models.RecentSearch
 
 class RecentSearchAdapter(
-    private val recentSearches: MutableList<RecentSearch> = mutableListOf(),
     private val onSearchClick: (String) -> Unit
-) : RecyclerView.Adapter<RecentSearchAdapter.RecentSearchViewHolder>() {
+) : ListAdapter<RecentSearch, RecentSearchAdapter.RecentSearchViewHolder>(RecentSearchDiffCallback()) {
 
-    fun setData(newSearches: List<RecentSearch>) {
-        recentSearches.clear()
-        recentSearches.addAll(newSearches)
-        notifyDataSetChanged()
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long {
+        return getItem(position).query.hashCode().toLong()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecentSearchViewHolder {
@@ -28,10 +31,8 @@ class RecentSearchAdapter(
     }
 
     override fun onBindViewHolder(holder: RecentSearchViewHolder, position: Int) {
-        holder.bind(recentSearches[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount(): Int = recentSearches.size
 
     inner class RecentSearchViewHolder(private val binding: ItemRecentSearchBinding) :
         RecyclerView.ViewHolder(binding.root) {
@@ -42,6 +43,16 @@ class RecentSearchAdapter(
             binding.root.setOnClickListener {
                 onSearchClick(search.query)
             }
+        }
+    }
+
+    class RecentSearchDiffCallback : DiffUtil.ItemCallback<RecentSearch>() {
+        override fun areItemsTheSame(oldItem: RecentSearch, newItem: RecentSearch): Boolean {
+            return oldItem.query == newItem.query && oldItem.isPreset == newItem.isPreset
+        }
+
+        override fun areContentsTheSame(oldItem: RecentSearch, newItem: RecentSearch): Boolean {
+            return oldItem == newItem
         }
     }
 }

@@ -2,6 +2,8 @@ package com.rxora.app.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.rxora.app.databinding.ItemCartBinding
 import com.rxora.app.models.CartItem
@@ -9,14 +11,14 @@ import com.rxora.app.utils.CartManager
 
 class CartAdapter(
     private val onQuantityChanged: () -> Unit
-) : RecyclerView.Adapter<CartAdapter.CartViewHolder>() {
+) : ListAdapter<CartItem, CartAdapter.CartViewHolder>(CartDiffCallback()) {
 
-    private val items = mutableListOf<CartItem>()
+    init {
+        setHasStableIds(true)
+    }
 
-    fun setData(newItems: List<CartItem>) {
-        items.clear()
-        items.addAll(newItems)
-        notifyDataSetChanged()
+    override fun getItemId(position: Int): Long {
+        return getItem(position).medicineId.toLong()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CartViewHolder {
@@ -25,10 +27,8 @@ class CartAdapter(
     }
 
     override fun onBindViewHolder(holder: CartViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount(): Int = items.size
 
     inner class CartViewHolder(private val binding: ItemCartBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: CartItem) {
@@ -50,6 +50,20 @@ class CartAdapter(
                 CartManager.removeItem(item.medicineId)
                 onQuantityChanged()
             }
+        }
+    }
+
+    fun setData(newItems: List<CartItem>) {
+        submitList(newItems)
+    }
+
+    class CartDiffCallback : DiffUtil.ItemCallback<CartItem>() {
+        override fun areItemsTheSame(oldItem: CartItem, newItem: CartItem): Boolean {
+            return oldItem.medicineId == newItem.medicineId
+        }
+
+        override fun areContentsTheSame(oldItem: CartItem, newItem: CartItem): Boolean {
+            return oldItem == newItem
         }
     }
 }

@@ -4,11 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.util.Log
-import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
@@ -30,16 +30,42 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var medicineAdapter: MedicineAdapter
-    private var recentSearchAdapter: RecentSearchAdapter? = null
-    private var presetSearchAdapter: RecentSearchAdapter? = null
+    private lateinit var recentSearchAdapter: RecentSearchAdapter
+    private lateinit var presetSearchAdapter: RecentSearchAdapter
 
     private var searchJob: Job? = null
     private var searchStartTime: Long = 0L
     private val DEBOUNCE_DELAY_MS = 300L
     private var suppressSearchTextChange = false
+    private var lastSearchQuery: String = ""
+    private var presetSearchItems: List<RecentSearch> = emptyList()
+    private var currentUiState: HomeUiState = HomeUiState.Home
+
+    private val voiceResultLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data = result.data
+            val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            if (!results.isNullOrEmpty()) {
+                val spokenText = results[0]?.trim().orEmpty()
+                Log.d(TAG, "VOICE_SEARCH_RESULT: $spokenText")
+                if (spokenText.isNotEmpty()) {
+                    setSearchTextAndSearch(spokenText)
+                }
+            }
+        }
+    }
+
+    private sealed class HomeUiState {
+        object Home : HomeUiState()
+        object Searching : HomeUiState()
+        object Results : HomeUiState()
+        object EmptyResults : HomeUiState()
+        data class NetworkError(val message: String) : HomeUiState()
+    }
 
     companion object {
-        private const val SPEECH_REQUEST_CODE = 100
         private const val TAG = "MainActivity"
         private const val CORRECTION_CONFIDENCE_THRESHOLD = 75
     }
@@ -52,44 +78,33 @@ class MainActivity : AppCompatActivity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
 
         setupRecyclerViews()
-        setupRealTimeSearch()
+        setupSearchListeners()
         setupButtons()
-
-        loadInitialData()
+        loadHomeData()
     }
 
     override fun onResume() {
         super.onResume()
         updateCartBadge()
+        if (currentUiState == HomeUiState.Results) {
+            updateUiState(HomeUiState.Results)
+        }
     }
 
-    private fun setupRealTimeSearch() {
+    private fun setupSearchListeners() {
         binding.searchEditText.doOnTextChanged { text, _, _, _ ->
             if (suppressSearchTextChange) return@doOnTextChanged
 
             val query = text?.toString()?.trim() ?: ""
-            searchJob?.cancel()
-
             if (query.isEmpty()) {
-                showLoading(false)
-                binding.statusText.visibility = View.VISIBLE
-                binding.statusText.text = "Enter query to begin"
-                binding.performanceText.text = ""
-                medicineAdapter.submitList(emptyList())
-                binding.presetSection.visibility = View.VISIBLE
-                binding.recentTitle.visibility = if (recentSearchAdapter?.itemCount ?: 0 > 0) View.VISIBLE else View.GONE
+                searchJob?.cancel()
+                lastSearchQuery = ""
+                updateUiState(HomeUiState.Home)
                 return@doOnTextChanged
             }
 
-            binding.presetSection.visibility = View.GONE
-            binding.statusText.visibility = View.VISIBLE
-            binding.statusText.text = "Searching..."
-            binding.performanceText.text = ""
-            searchStartTime = System.nanoTime()
-
-            searchJob = lifecycleScope.launch {
-                delay(DEBOUNCE_DELAY_MS)
-                performSearch(query)
+            if (query != lastSearchQuery) {
+                scheduleSearch(query)
             }
         }
 
@@ -98,10 +113,7 @@ class MainActivity : AppCompatActivity() {
                 val query = binding.searchEditText.text?.toString()?.trim() ?: ""
                 if (query.isNotEmpty()) {
                     searchJob?.cancel()
-                    searchStartTime = System.nanoTime()
-                    lifecycleScope.launch {
-                        performSearch(query)
-                    }
+                    executeSearch(query)
                 }
                 true
             } else {
@@ -110,27 +122,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadInitialData() {
+    private fun loadHomeData() {
         updateCartBadge()
-
-        val searches = RecentSearchStore.loadRecentSearches(this)
-        binding.recentTitle.visibility = View.VISIBLE
-        if (searches.isNotEmpty()) {
-            binding.recentEmptyState.visibility = View.GONE
-            recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
-        } else {
-            binding.recentEmptyState.visibility = View.VISIBLE
-            recentSearchAdapter?.setData(emptyList())
-        }
-
         binding.presetLoading.visibility = View.VISIBLE
-        binding.presetSection.visibility = View.VISIBLE
+        updateUiState(HomeUiState.Home)
 
+        recentSearchAdapter.submitList(loadRecentSearches())
         lifecycleScope.launch {
-            loadPresetMedicines()
+            presetSearchItems = loadPresetSearches()
+            presetSearchAdapter.submitList(presetSearchItems)
+            binding.presetLoading.visibility = View.GONE
+            updateUiState(currentUiState)
         }
-
-        binding.searchEditText.requestFocus()
     }
 
     private fun setupRecyclerViews() {
@@ -144,15 +147,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         recentSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
-            val trimmed = query.trim()
-            suppressSearchTextChange = true
-            binding.searchEditText.setText(trimmed)
-            binding.searchEditText.setSelection(trimmed.length)
-            suppressSearchTextChange = false
-            lifecycleScope.launch {
-                performSearch(trimmed)
-            }
+            Log.d(TAG, "RECENT_CLICKED: $query")
+            setSearchTextAndSearch(query)
         })
+
         binding.recentSearchesRecyclerView.apply {
             layoutManager = GridLayoutManager(this@MainActivity, 2)
             adapter = recentSearchAdapter
@@ -160,16 +158,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         presetSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
-            val trimmed = query.trim()
-            Log.d(TAG, "PRESET_CLICKED: $trimmed")
-            suppressSearchTextChange = true
-            binding.searchEditText.setText(trimmed)
-            binding.searchEditText.setSelection(trimmed.length)
-            suppressSearchTextChange = false
-            lifecycleScope.launch {
-                performSearch(trimmed)
-            }
+            Log.d(TAG, "PRESET_CLICKED: $query")
+            setSearchTextAndSearch(query)
         })
+
         binding.presetRecyclerView.apply {
             layoutManager = GridLayoutManager(this@MainActivity, 2)
             adapter = presetSearchAdapter
@@ -185,6 +177,39 @@ class MainActivity : AppCompatActivity() {
         binding.cartButton.setOnClickListener {
             startActivity(Intent(this, CartActivity::class.java))
         }
+
+        binding.retryButton.setOnClickListener {
+            if (lastSearchQuery.isNotBlank()) {
+                executeSearch(lastSearchQuery)
+            } else {
+                updateUiState(HomeUiState.Home)
+            }
+        }
+    }
+
+    private fun setSearchTextAndSearch(query: String) {
+        suppressSearchTextChange = true
+        binding.searchEditText.setText(query)
+        binding.searchEditText.setSelection(query.length)
+        suppressSearchTextChange = false
+        executeSearch(query)
+    }
+
+    private fun scheduleSearch(query: String) {
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
+            delay(DEBOUNCE_DELAY_MS)
+            executeSearch(query)
+        }
+    }
+
+    private fun executeSearch(query: String) {
+        lastSearchQuery = query
+        updateUiState(HomeUiState.Searching)
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
+            performSearch(query)
+        }
     }
 
     private fun updateCartBadge() {
@@ -195,13 +220,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.cartBadge.visibility = View.GONE
         }
-        Log.d(TAG, "CART_TOTAL_UPDATED: $count")
+        Log.d(TAG, "CART_UPDATED: $count")
     }
 
     private suspend fun performSearch(query: String) {
-        showLoading(true)
-        binding.statusText.visibility = View.GONE
-
+        lastSearchQuery = query
+        Log.d(TAG, "SEARCH_STARTED: $query")
         try {
             val response = withContext(Dispatchers.IO) {
                 RetrofitClient.medicineApi.searchMedicines(query, limit = 20)
@@ -210,31 +234,24 @@ class MainActivity : AppCompatActivity() {
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
                 val medicines = body.medicines
-
                 medicineAdapter.submitList(medicines)
 
                 if (medicines.isEmpty()) {
-                    binding.statusText.visibility = View.VISIBLE
-                    binding.statusText.text = "No records found for '$query'"
+                    updateUiState(HomeUiState.EmptyResults)
                 } else {
-                    binding.statusText.visibility = View.GONE
+                    updateUiState(HomeUiState.Results)
                 }
 
                 binding.performanceText.text = "Source: ${body.source} | Latency: ${body.timing_ms}ms"
-
-                Log.d(TAG, "SEARCH_EXECUTED: $query")
+                Log.d(TAG, "SEARCH_COMPLETED: $query | count=${medicines.size}")
                 saveRecentSearch(query)
             } else {
-                binding.statusText.visibility = View.VISIBLE
-                binding.statusText.text = "Backend services unavailable"
+                updateUiState(HomeUiState.NetworkError("Backend services unavailable"))
             }
         } catch (e: Exception) {
             if (e !is CancellationException) {
-                binding.statusText.visibility = View.VISIBLE
-                binding.statusText.text = e.localizedMessage ?: "An unknown error occurred"
+                updateUiState(HomeUiState.NetworkError(e.localizedMessage ?: "An unknown error occurred"))
             }
-        } finally {
-            showLoading(false)
         }
     }
 
@@ -245,63 +262,86 @@ class MainActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Identify medicine...")
         }
         try {
-            startActivityForResult(intent, SPEECH_REQUEST_CODE)
+            voiceResultLauncher.launch(intent)
         } catch (e: Exception) {
             Toast.makeText(this, "Voice capability not found", Toast.LENGTH_SHORT).show()
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == SPEECH_REQUEST_CODE && resultCode == RESULT_OK) {
-            val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            if (!results.isNullOrEmpty()) {
-                val spokenText = results[0]?.trim().orEmpty()
-                if (spokenText.isNotEmpty()) {
-                    binding.searchEditText.setText(spokenText)
-                    binding.searchEditText.setSelection(spokenText.length)
-                    lifecycleScope.launch {
-                        performVoiceSearch(spokenText)
-                    }
-                }
-            }
-        }
-    }
-
     private fun saveRecentSearch(query: String) {
         val searches = RecentSearchStore.addRecentSearch(this, query)
-        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
-        binding.recentEmptyState.visibility = if (searches.isEmpty()) View.VISIBLE else View.GONE
-        recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
+        recentSearchAdapter.submitList(searches.map { RecentSearch(query = it) })
+        updateRecentState(searches)
         Log.d(TAG, "RECENT_SEARCH_SAVED: $query")
     }
 
-    private suspend fun loadPresetMedicines() {
-        try {
+    private fun updateRecentState(searches: List<String>) {
+        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
+        binding.recentEmptyState.visibility = if (searches.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private suspend fun loadPresetSearches(): List<RecentSearch> {
+        return try {
             val response = withContext(Dispatchers.IO) {
                 RetrofitClient.medicineApi.getPresetMedicines()
             }
             if (response.isSuccessful && response.body() != null) {
-                val items = response.body()!!.medicines.map { RecentSearch(query = it.name, isPreset = true) }
-                if (items.isNotEmpty()) {
-                    presetSearchAdapter?.setData(items)
-                    binding.presetSection.visibility = View.VISIBLE
-                } else {
-                    binding.presetSection.visibility = View.GONE
-                }
+                response.body()!!.medicines.map { RecentSearch(query = it.name, isPreset = true) }
             } else {
-                binding.presetSection.visibility = View.GONE
+                emptyList()
             }
         } catch (e: Exception) {
             Log.w(TAG, "Preset load failed", e)
-            binding.presetSection.visibility = View.GONE
-        } finally {
-            binding.presetLoading.visibility = View.GONE
+            emptyList()
         }
     }
 
-    private fun showLoading(show: Boolean) {
-        binding.loadingProgressBar.visibility = if (show) View.VISIBLE else View.GONE
+    private fun updateUiState(state: HomeUiState) {
+        currentUiState = state
+        binding.statusText.visibility = View.GONE
+        binding.loadingProgressBar.visibility = View.GONE
+        binding.retryButton.visibility = View.GONE
+        binding.recentSection.visibility = View.GONE
+        binding.presetSection.visibility = View.GONE
+        binding.medicineRecyclerView.visibility = View.GONE
+        binding.performanceText.visibility = View.GONE
+        binding.correctionText.visibility = View.GONE
+
+        when (state) {
+            HomeUiState.Home -> {
+                binding.recentSection.visibility = View.VISIBLE
+                if (presetSearchItems.isNotEmpty()) {
+                    binding.presetSection.visibility = View.VISIBLE
+                }
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "Enter query to begin"
+                medicineAdapter.submitList(emptyList())
+            }
+            HomeUiState.Searching -> {
+                binding.loadingProgressBar.visibility = View.VISIBLE
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "Searching..."
+            }
+            HomeUiState.Results -> {
+                binding.medicineRecyclerView.visibility = View.VISIBLE
+                binding.performanceText.visibility = View.VISIBLE
+            }
+            HomeUiState.EmptyResults -> {
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = "No medicines found"
+            }
+            is HomeUiState.NetworkError -> {
+                binding.statusText.visibility = View.VISIBLE
+                binding.statusText.text = state.message
+                binding.retryButton.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun loadRecentSearches(): List<RecentSearch> {
+        val recentWords = RecentSearchStore.loadRecentSearches(this)
+        updateRecentState(recentWords)
+        return recentWords.map { RecentSearch(query = it) }
     }
 
     private fun showCorrectionMessage(message: String?) {
@@ -315,9 +355,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun performVoiceSearch(spokenText: String) {
-        showLoading(true)
-        binding.statusText.visibility = View.VISIBLE
-        binding.statusText.text = "Correcting voice input..."
+        updateUiState(HomeUiState.Searching)
         showCorrectionMessage(null)
 
         try {
@@ -344,11 +382,10 @@ class MainActivity : AppCompatActivity() {
             performSearch(searchQuery)
         } catch (e: Exception) {
             showCorrectionMessage(null)
-            binding.statusText.visibility = View.VISIBLE
-            binding.statusText.text = "Voice correction unavailable"
-            performSearch(spokenText)
-        } finally {
-            showLoading(false)
+            updateUiState(HomeUiState.NetworkError("Voice correction unavailable"))
+            if (spokenText.isNotBlank()) {
+                performSearch(spokenText)
+            }
         }
     }
 
