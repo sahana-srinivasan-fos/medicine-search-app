@@ -35,7 +35,7 @@ class MainActivity : AppCompatActivity() {
 
     private var searchJob: Job? = null
     private var searchStartTime: Long = 0L
-    private val DEBOUNCE_DELAY_MS = 300L
+    private val DEBOUNCE_DELAY_MS = 250L
     private var suppressSearchTextChange = false
     private var lastSearchQuery: String = ""
     private var presetSearchItems: List<RecentSearch> = emptyList()
@@ -81,6 +81,16 @@ class MainActivity : AppCompatActivity() {
         setupSearchListeners()
         setupButtons()
         loadHomeData()
+
+        // Fire a background /health ping to warm Render backend (no UI impact)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                RetrofitClient.medicineApi.health()
+                Log.d(TAG, "Health ping sent")
+            } catch (e: Exception) {
+                Log.w(TAG, "Health ping failed", e)
+            }
+        }
     }
 
     override fun onResume() {
@@ -96,7 +106,7 @@ class MainActivity : AppCompatActivity() {
             if (suppressSearchTextChange) return@doOnTextChanged
 
             val query = text?.toString()?.trim() ?: ""
-            if (query.isEmpty()) {
+            if (query.isEmpty() || query.length < 3) {
                 searchJob?.cancel()
                 lastSearchQuery = ""
                 updateUiState(HomeUiState.Home)
@@ -111,7 +121,7 @@ class MainActivity : AppCompatActivity() {
         binding.searchEditText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 val query = binding.searchEditText.text?.toString()?.trim() ?: ""
-                if (query.isNotEmpty()) {
+                if (query.isNotEmpty() && query.length >= 3) {
                     searchJob?.cancel()
                     executeSearch(query)
                 }
@@ -192,6 +202,8 @@ class MainActivity : AppCompatActivity() {
         binding.searchEditText.setText(query)
         binding.searchEditText.setSelection(query.length)
         suppressSearchTextChange = false
+        // Bypass debounce for preset/recent/voice/enter actions
+        searchJob?.cancel()
         executeSearch(query)
     }
 
@@ -204,8 +216,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeSearch(query: String) {
+        if (query.length < 3) {
+            updateUiState(HomeUiState.Home)
+            return
+        }
+
         lastSearchQuery = query
         updateUiState(HomeUiState.Searching)
+        // Cancel any previous running search
         searchJob?.cancel()
         searchJob = lifecycleScope.launch {
             performSearch(query)

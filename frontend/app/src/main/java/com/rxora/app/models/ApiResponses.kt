@@ -72,3 +72,9 @@ data class OrderResponse(
     val created_at: String,
     val items: List<OrderItemResponse>
 )
+
+data class HealthResponse(
+    val status: String,
+    val medicines_loaded: Int,
+    val timestamp: String
+)

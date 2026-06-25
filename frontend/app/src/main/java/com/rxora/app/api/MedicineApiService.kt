@@ -17,6 +17,9 @@ interface MedicineApiService {
     @GET("/api/medicines/presets")
     suspend fun getPresetMedicines(): Response<PresetsResponse>
 
+    @GET("/health")
+    suspend fun health(): Response<HealthResponse>
+
     @GET("/api/medicine/{medicine_id}")
     suspend fun getMedicineDetail(@Path("medicine_id") id: Int): Response<com.rxora.app.models.MedicineDetail>
 
