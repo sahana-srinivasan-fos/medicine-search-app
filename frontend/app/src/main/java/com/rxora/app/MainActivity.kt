@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private var searchJob: Job? = null
     private var searchStartTime: Long = 0L
     private val DEBOUNCE_DELAY_MS = 300L
+    private var suppressSearchTextChange = false
 
     companion object {
         private const val SPEECH_REQUEST_CODE = 100
@@ -64,6 +65,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupRealTimeSearch() {
         binding.searchEditText.doOnTextChanged { text, _, _, _ ->
+            if (suppressSearchTextChange) return@doOnTextChanged
+
             val query = text?.toString()?.trim() ?: ""
             searchJob?.cancel()
 
@@ -142,8 +145,10 @@ class MainActivity : AppCompatActivity() {
 
         recentSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
             val trimmed = query.trim()
+            suppressSearchTextChange = true
             binding.searchEditText.setText(trimmed)
             binding.searchEditText.setSelection(trimmed.length)
+            suppressSearchTextChange = false
             lifecycleScope.launch {
                 performSearch(trimmed)
             }
@@ -157,8 +162,10 @@ class MainActivity : AppCompatActivity() {
         presetSearchAdapter = RecentSearchAdapter(onSearchClick = { query ->
             val trimmed = query.trim()
             Log.d(TAG, "PRESET_CLICKED: $trimmed")
+            suppressSearchTextChange = true
             binding.searchEditText.setText(trimmed)
             binding.searchEditText.setSelection(trimmed.length)
+            suppressSearchTextChange = false
             lifecycleScope.launch {
                 performSearch(trimmed)
             }
@@ -263,7 +270,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveRecentSearch(query: String) {
         val searches = RecentSearchStore.addRecentSearch(this, query)
-        binding.recentTitle.visibility = View.VISIBLE
+        binding.recentTitle.visibility = if (searches.isNotEmpty()) View.VISIBLE else View.GONE
         binding.recentEmptyState.visibility = if (searches.isEmpty()) View.VISIBLE else View.GONE
         recentSearchAdapter?.setData(searches.map { RecentSearch(query = it) })
         Log.d(TAG, "RECENT_SEARCH_SAVED: $query")
