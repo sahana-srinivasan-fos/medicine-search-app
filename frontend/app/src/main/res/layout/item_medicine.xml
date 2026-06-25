@@ -54,7 +54,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/medicine_stock"
@@ -77,13 +78,15 @@
         <Button
             android:id="@+id/add_to_cart_button"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_marginTop="8dp"
+            android:layout_gravity="end"
+            android:background="@drawable/box_button_bg"
             android:text="ADD TO CART"
-            android:backgroundTint="@color/primary_accent"
+            android:textAllCaps="false"
             android:textColor="@color/background"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp" />
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="8dp" />
 
     </LinearLayout>
 
