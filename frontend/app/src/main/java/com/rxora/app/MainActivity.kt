@@ -1,19 +1,21 @@
 package com.rxora.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.snackbar.Snackbar
 import com.rxora.app.api.RetrofitClient
 import com.rxora.app.databinding.ActivityMainBinding
 import com.rxora.app.models.CorrectionResponse
@@ -23,8 +25,11 @@ import com.rxora.app.ui.MedicineAdapter
 import com.rxora.app.ui.RecentSearchAdapter
 import com.rxora.app.utils.CartManager
 import com.rxora.app.utils.RecentSearchStore
+import com.rxora.app.voice.VoiceTranscriber
+import com.rxora.app.voice.recorder.AudioRecorder
+import com.rxora.app.voice.whisper.WhisperManager
 import kotlinx.coroutines.*
-import java.util.Locale
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -41,19 +46,26 @@ class MainActivity : AppCompatActivity() {
     private var presetSearchItems: List<RecentSearch> = emptyList()
     private var currentUiState: HomeUiState = HomeUiState.Home
 
-    private val voiceResultLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val data = result.data
-            val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            if (!results.isNullOrEmpty()) {
-                val spokenText = results[0]?.trim().orEmpty()
-                Log.d(TAG, "VOICE_SEARCH_RESULT: $spokenText")
-                if (spokenText.isNotEmpty()) {
-                    setSearchTextAndSearch(spokenText)
-                }
-            }
+    private val voiceTranscriber: VoiceTranscriber by lazy {
+        WhisperManager(this)
+    }
+
+    private val whisperManager: WhisperManager by lazy {
+        voiceTranscriber as WhisperManager
+    }
+
+    private val audioRecorder = AudioRecorder()
+    private var currentRecordingFile: File? = null
+    private var isRecording = false
+    private var isTranscribing = false
+
+    private val recordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startVoiceRecording()
+        } else {
+            showVoiceError("Microphone permission denied")
         }
     }
 
@@ -181,7 +193,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupButtons() {
         binding.voiceButton.setOnClickListener {
-            startVoiceSearch()
+            onVoiceButtonClicked()
         }
 
         binding.cartButton.setOnClickListener {
@@ -273,17 +285,131 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun startVoiceSearch() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Identify medicine...")
+    private fun onVoiceButtonClicked() {
+        if (isRecording) {
+            stopRecordingAndTranscribe()
+        } else if (!isTranscribing) {
+            requestMicrophonePermissionAndStart()
         }
-        try {
-            voiceResultLauncher.launch(intent)
+    }
+
+    private fun requestMicrophonePermissionAndStart() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startVoiceRecording()
+        } else {
+            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startVoiceRecording() {
+        if (isTranscribing) return
+        val tempFile = try {
+            File.createTempFile("rxora_voice_", ".wav", cacheDir)
         } catch (e: Exception) {
-            Toast.makeText(this, "Voice capability not found", Toast.LENGTH_SHORT).show()
+            showVoiceError("Unable to create temporary audio file")
+            return
         }
+
+        currentRecordingFile = tempFile
+        isRecording = true
+        setVoiceUiState("Listening...", true)
+        Log.d(TAG, "VOICE_RECORD_STARTED")
+
+        lifecycleScope.launch {
+            try {
+                audioRecorder.startRecording(tempFile) { error ->
+                    runOnUiThread {
+                        showVoiceError("Recording failed: ${error.localizedMessage}")
+                        resetVoiceState()
+                    }
+                }
+            } catch (e: Exception) {
+                showVoiceError("Recording failed: ${e.localizedMessage}")
+                resetVoiceState()
+            }
+        }
+    }
+
+    private fun stopRecordingAndTranscribe() {
+        if (!isRecording) return
+        isRecording = false
+        Log.d(TAG, "VOICE_RECORD_STOPPED")
+        setVoiceUiState("Transcribing...", true)
+        binding.voiceButton.isEnabled = false
+        isTranscribing = true
+
+        val audioFile = currentRecordingFile
+        currentRecordingFile = null
+
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    audioRecorder.stopRecording()
+                }
+                if (audioFile == null || !audioFile.exists()) {
+                    showVoiceError("Recorded audio file was not created")
+                    return@launch
+                }
+
+                val modelReady = withContext(Dispatchers.IO) {
+                    Log.d(TAG, "WHISPER_MODEL_LOADING")
+                    whisperManager.initModel()
+                }
+
+                if (!modelReady) {
+                    showVoiceError("Whisper model failed to load. Ensure assets/models/ggml-base.en.bin is available.")
+                    return@launch
+                }
+
+                Log.d(TAG, "WHISPER_MODEL_READY")
+                val startTime = System.currentTimeMillis()
+                Log.d(TAG, "TRANSCRIPTION_STARTED")
+                val transcription = try {
+                    voiceTranscriber.transcribe(audioFile)
+                } catch (e: Exception) {
+                    throw RuntimeException("Transcription failed", e)
+                }
+                val duration = System.currentTimeMillis() - startTime
+                Log.d(TAG, "TRANSCRIPTION_FINISHED")
+                Log.d(TAG, "TRANSCRIPTION_DURATION_MS: $duration")
+                Log.d(TAG, "TRANSCRIPTION_RESULT: $transcription")
+
+                if (transcription.isBlank()) {
+                    showVoiceError("No speech was detected in the recording")
+                } else {
+                    setSearchTextAndSearch(transcription)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Voice transcription failed", e)
+                showVoiceError(e.localizedMessage ?: "Voice transcription failed")
+            } finally {
+                audioFile?.delete()
+                resetVoiceState()
+            }
+        }
+    }
+
+    private fun resetVoiceState() {
+        isRecording = false
+        isTranscribing = false
+        binding.voiceButton.isEnabled = true
+        binding.loadingProgressBar.visibility = View.GONE
+        if (binding.statusText.text == "Listening..." || binding.statusText.text == "Transcribing...") {
+            binding.statusText.text = "Ready for query"
+        }
+    }
+
+    private fun setVoiceUiState(message: String, showProgress: Boolean) {
+        binding.statusText.visibility = View.VISIBLE
+        binding.statusText.text = message
+        binding.loadingProgressBar.visibility = if (showProgress) View.VISIBLE else View.GONE
+    }
+
+    private fun showVoiceError(message: String) {
+        binding.statusText.visibility = View.VISIBLE
+        binding.statusText.text = message
+        binding.loadingProgressBar.visibility = View.GONE
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
     }
 
     private fun saveRecentSearch(query: String) {
